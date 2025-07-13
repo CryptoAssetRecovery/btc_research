@@ -1,0 +1,51 @@
+# Demo configuration: EMA bias + RSI entry strategy
+# This configuration demonstrates a multi-timeframe strategy that uses:
+# - 1-hour EMA trend bias for market direction
+# - 5-minute RSI for precise entry and exit signals
+
+version: "1.0"
+name: "EMA bias + RSI entry"
+symbol: "BTC/USDC"
+exchange: "binanceus"
+
+# Named timeframes for this strategy
+timeframes:
+  bias: "1h"    # Higher timeframe for trend bias
+  entry: "5m"   # Lower timeframe for entry/exit signals
+
+# Indicators to compute
+indicators:
+  # EMA on 1-hour timeframe for trend bias
+  - id: "EMA_200"
+    type: "EMA"
+    timeframe: "1h"
+    length: 200
+
+  # RSI on 5-minute timeframe for entry/exit
+  - id: "RSI_14"
+    type: "RSI" 
+    timeframe: "5m"
+    length: 14
+
+# Trading logic expressions
+# All entry conditions must be true simultaneously
+# Any exit condition can trigger an exit
+logic:
+  entry_long:
+    - "EMA_200_trend == 'bull'"  # Trend must be bullish on 1h
+    - "RSI_14 < 30"              # RSI oversold on 5m
+  
+  exit_long:
+    - "RSI_14 > 70"              # RSI overbought - take profit
+  
+  # Short trading disabled for this strategy
+  entry_short: []
+  exit_short: []
+
+# Backtesting parameters
+backtest:
+  cash: 10000          # Starting capital in USD
+  commission: 0.0004   # 0.04% commission per trade
+  slippage: 0.0        # No slippage assumption
+  from: "2024-01-01"   # Start date
+  to: "2024-06-30"     # End date
