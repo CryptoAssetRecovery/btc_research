@@ -1,0 +1,1 @@
+"""Core framework components for the BTC research engine."""
