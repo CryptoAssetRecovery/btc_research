@@ -33,6 +33,7 @@ MANIFEST
 *.spec
 
 venv/
+*.png
 
 # Installer logs
 pip-log.txt

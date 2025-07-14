@@ -1,0 +1,65 @@
+# FVG Fair Value Gap Strategy Configuration
+# This configuration demonstrates using Fair Value Gaps (FVG) for trading signals
+# Based on ICT (Inner Circle Trader) methodology for identifying market imbalances
+
+version: "1.0"
+name: "FVG Gap Trading Strategy"
+symbol: "BTC/USDC"
+exchange: "binanceus"
+
+# Named timeframes for this strategy
+timeframes:
+  structure: "1h"    # Higher timeframe for market structure
+  entry: "15m"       # Lower timeframe for precise entries
+
+# Indicators to compute
+indicators:
+  # EMA for trend bias on higher timeframe
+  - id: "EMA_50"
+    type: "EMA"
+    timeframe: "1h"
+    length: 50
+
+  # FVG detection on entry timeframe
+  - id: "FVG_15m"
+    type: "FVG"
+    timeframe: "15m"
+    min_gap_pips: 10.0     # Minimum gap size in USD for BTC
+    max_lookback: 200      # Track last 200 candles of gaps
+
+  # RSI for confluence
+  - id: "RSI_14"
+    type: "RSI"
+    timeframe: "15m"
+    length: 14
+
+# Trading logic expressions
+# FVG strategy: Enter when price returns to unfilled gaps in trend direction
+logic:
+  entry_long:
+    - "EMA_50_trend == 'bull'"                    # Bullish trend on 1h
+    - "FVG_15m_FVG_bullish_signal == True"       # Price at bullish FVG zone
+    - "FVG_15m_FVG_active_bullish_gaps > 0"      # Active unfilled bullish gaps
+    - "RSI_14 < 50"                              # RSI confirmation (not overbought)
+  
+  exit_long:
+    - "FVG_15m_FVG_gap_filled == True"           # Gap gets filled (take profit)
+    - "RSI_14 > 80"                              # Strong overbought condition
+  
+  entry_short:
+    - "EMA_50_trend == 'bear'"                   # Bearish trend on 1h  
+    - "FVG_15m_FVG_bearish_signal == True"       # Price at bearish FVG zone
+    - "FVG_15m_FVG_active_bearish_gaps > 0"      # Active unfilled bearish gaps
+    - "RSI_14 > 50"                              # RSI confirmation (not oversold)
+  
+  exit_short:
+    - "FVG_15m_FVG_gap_filled == True"           # Gap gets filled (take profit)
+    - "RSI_14 < 20"                              # Strong oversold condition
+
+# Backtesting parameters
+backtest:
+  cash: 10000          # Starting capital in USD
+  commission: 0.0004   # 0.04% commission per trade
+  slippage: 0.001      # 0.1% slippage for market orders
+  from: "2024-01-01"   # Start date
+  to: "2025-01-01"     # End date

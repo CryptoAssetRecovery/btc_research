@@ -48,4 +48,4 @@ backtest:
   commission: 0.0004   # 0.04% commission per trade
   slippage: 0.0        # No slippage assumption
   from: "2024-01-01"   # Start date
-  to: "2024-06-30"     # End date
+  to: "2025-01-01"     # End date
