@@ -244,6 +244,7 @@ class DynamicStrategy(bt.Strategy):
             for key, value in eval_context.items():
                 if pd.isna(value):
                     eval_context[key] = None
+            
 
             # Evaluate entry conditions for long positions
             if not self.position and len(self.strategy_logic.entry_long_rules) > 0:

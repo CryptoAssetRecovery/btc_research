@@ -1,6 +1,7 @@
 # FVG Fair Value Gap Strategy Configuration
 # This configuration demonstrates using Fair Value Gaps (FVG) for trading signals
 # Based on ICT (Inner Circle Trader) methodology for identifying market imbalances
+# Optimized for parameter tuning with the new optimization framework
 
 version: "1.0"
 name: "FVG Gap Trading Strategy"
@@ -56,10 +57,106 @@ logic:
     - "FVG_15m_FVG_gap_filled == True"           # Gap gets filled (take profit)
     - "RSI_14 < 20"                              # Strong oversold condition
 
+# Optimization parameters section
+# Use these with the new optimization framework
+optimization:
+  parameters:
+    # EMA trend detection period
+    - name: "EMA_50.length"
+      type: "integer"
+      low: 30
+      high: 90
+      default: 50
+      step: 5
+      description: "EMA period for trend detection"
+    
+    # FVG minimum gap size
+    - name: "FVG_15m.min_gap_pips"
+      type: "float"
+      low: 7.0
+      high: 15.0
+      default: 10.0
+      step: 1.0
+      description: "Minimum gap size in USD for valid FVG"
+    
+    # FVG lookback period
+    - name: "FVG_15m.max_lookback"
+      type: "integer"
+      low: 100
+      high: 300
+      default: 200
+      step: 10
+      description: "Maximum historical gaps to track"
+    
+    # RSI period
+    - name: "RSI_14.length"
+      type: "integer"
+      low: 10
+      high: 20
+      default: 14
+      step: 1
+      description: "RSI calculation period"
+    
+    # RSI entry thresholds (for future logic enhancement)
+    - name: "rsi_long_threshold"
+      type: "float"
+      low: 40
+      high: 60.0
+      default: 50.0
+      step: 1.0
+      description: "RSI threshold for long entries"
+    
+    - name: "rsi_short_threshold"
+      type: "float"
+      low: 20.0
+      high: 100.0
+      default: 50.0
+      step: 10.0
+      description: "RSI threshold for short entries"
+    
+    # RSI exit thresholds
+    - name: "rsi_long_exit"
+      type: "float"
+      low: 60.0
+      high: 100.0
+      default: 80.0
+      step: 5.0
+      description: "RSI threshold for long exits"
+    
+    - name: "rsi_short_exit"
+      type: "float"
+      low: 10.0
+      high: 30.0
+      default: 20.0
+      step: 1.0
+      description: "RSI threshold for short exits"
+  
+  # Default optimization settings
+  defaults:
+    method: "bayesian"           # Optimization algorithm
+    validation: "walk_forward"   # Validation strategy
+    metric: "sharpe_ratio"       # Primary optimization metric
+    max_iterations: 50           # Maximum optimization iterations
+    
+    # Validation configuration
+    validation_config:
+      n_splits: 5                # Number of validation folds
+      test_size: 0.2             # Test set proportion
+      gap: 24                    # Gap between train/test (hours)
+    
+    # Robustness testing
+    robustness_tests:
+      - type: "monte_carlo"
+        simulations: 1000
+        noise_level: 0.05
+      - type: "bootstrap"
+        n_bootstrap: 500
+        confidence_level: 0.95
+
 # Backtesting parameters
 backtest:
   cash: 10000          # Starting capital in USD
   commission: 0.0004   # 0.04% commission per trade
   slippage: 0.001      # 0.1% slippage for market orders
-  from: "2024-01-01"   # Start date
+  from: "2020-01-01"   # Start date
   to: "2025-01-01"     # End date

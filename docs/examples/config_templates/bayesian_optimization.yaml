@@ -1,0 +1,243 @@
+# Bayesian Optimization Configuration Template
+# This template shows how to configure Bayesian optimization for strategy parameters
+# with proper validation and robustness testing
+
+version: "1.0"
+name: "Advanced RSI Strategy with Bayesian Optimization"
+description: "RSI mean reversion strategy optimized using Bayesian optimization"
+symbol: "BTC/USD"
+
+# Define timeframes for analysis
+timeframes:
+  bias: "4h"      # Higher timeframe for trend bias
+  entry: "1h"     # Entry timeframe
+  exit: "15m"     # Exit refinement timeframe
+
+# Technical indicators with optimizable parameters
+indicators:
+  # RSI for mean reversion signals
+  - id: "RSI_MAIN"
+    type: "RSI"
+    timeframe: "1h"
+    length: 14  # Will be optimized: rsi_period parameter
+    
+  # EMA for trend filter
+  - id: "EMA_TREND"
+    type: "EMA"
+    timeframe: "4h"
+    length: 50  # Will be optimized: ema_period parameter
+    
+  # Volume indicator for confirmation
+  - id: "VOLUME_SMA"
+    type: "SMA"
+    timeframe: "1h"
+    source: "volume"
+    length: 20
+
+# Trading logic with optimizable thresholds
+logic:
+  # Entry conditions (all must be true)
+  entry_long:
+    - "RSI_MAIN < 30"           # Will be optimized: rsi_oversold parameter
+    - "EMA_TREND_trend == 'bull'"  # Trend filter
+    - "volume > VOLUME_SMA * 1.2"  # Volume confirmation
+    
+  # Exit conditions (any can trigger)
+  exit_long:
+    - "RSI_MAIN > 70"           # Will be optimized: rsi_overbought parameter
+    - "price < EMA_TREND * 0.95"  # Stop loss at 5% below trend EMA
+    
+  # Short positions (optional)
+  entry_short:
+    - "RSI_MAIN > 70"           # Will use rsi_overbought parameter
+    - "EMA_TREND_trend == 'bear'"
+    - "volume > VOLUME_SMA * 1.2"
+    
+  exit_short:
+    - "RSI_MAIN < 30"           # Will use rsi_oversold parameter
+    - "price > EMA_TREND * 1.05"  # Stop loss at 5% above trend EMA
+
+# Risk management parameters (can also be optimized)
+risk:
+  position_size: 0.1          # 10% of capital per trade
+  max_positions: 1            # Maximum concurrent positions
+  stop_loss: 0.05            # 5% stop loss (can be optimized)
+  take_profit: 0.15          # 15% take profit (can be optimized)
+
+# Backtesting parameters
+backtest:
+  cash: 10000                 # Starting capital
+  commission: 0.001           # 0.1% commission per trade
+  slippage: 0.0005           # 0.05% slippage
+  from: "2023-01-01"         # Start date
+  to: "2024-01-01"           # End date
+
+# OPTIMIZATION CONFIGURATION
+optimization:
+  # Optimization method
+  method: "bayesian"
+  
+  # Optimization settings
+  max_iterations: 100         # Maximum number of evaluations
+  convergence_threshold: 0.01 # Stop if improvement < 1%
+  timeout_seconds: 3600       # 1 hour timeout
+  random_seed: 42            # For reproducibility
+  
+  # Objective metric to optimize
+  metric: "sharpe_ratio"      # Options: sharpe_ratio, total_return, calmar_ratio, etc.
+  
+  # Bayesian optimization specific settings
+  acquisition_function: "expected_improvement"  # Options: expected_improvement, upper_confidence_bound, probability_of_improvement
+  n_initial_points: 10       # Random exploration points before Bayesian optimization
+  xi: 0.01                   # Exploration parameter (higher = more exploration)
+  kappa: 2.576              # Confidence parameter for UCB (95% confidence)
+  
+  # Parameters to optimize
+  parameters:
+    # RSI period optimization
+    - name: "rsi_period"
+      type: "integer"
+      low: 8
+      high: 25
+      description: "RSI calculation period"
+      
+    # RSI oversold threshold
+    - name: "rsi_oversold"
+      type: "float"
+      low: 15.0
+      high: 35.0
+      step: 0.5
+      description: "RSI oversold threshold for long entry"
+      
+    # RSI overbought threshold  
+    - name: "rsi_overbought"
+      type: "float"
+      low: 65.0
+      high: 85.0
+      step: 0.5
+      description: "RSI overbought threshold for long exit"
+      
+    # EMA trend filter period
+    - name: "ema_period"
+      type: "integer"
+      low: 20
+      high: 100
+      step: 5
+      description: "EMA period for trend filtering"
+      
+    # Position sizing (optional optimization)
+    - name: "position_size"
+      type: "float"
+      low: 0.05
+      high: 0.25
+      step: 0.01
+      description: "Position size as fraction of capital"
+      
+    # Stop loss optimization (optional)
+    - name: "stop_loss"
+      type: "float"
+      low: 0.02
+      high: 0.10
+      step: 0.005
+      description: "Stop loss as fraction of entry price"
+
+  # VALIDATION CONFIGURATION
+  validation:
+    method: "walk_forward"     # Options: walk_forward, time_series_split, purged_cv
+    
+    # Walk-forward specific settings
+    window_size: 252           # Training window (1 year of daily data)
+    step_size: 21              # Step forward (1 month)
+    min_train_size: 100        # Minimum training samples
+    max_train_size: 500        # Maximum training samples (memory limit)
+    
+    # Alternative: Time series split settings
+    # n_splits: 5              # Number of validation folds
+    # test_size: 0.2           # 20% for testing
+    # gap: 24                  # Gap between train and test (hours)
+    # expanding_window: true   # Expanding vs sliding window
+    
+    # Alternative: Purged cross-validation settings  
+    # n_splits: 5              # Number of folds
+    # purge_length: 24         # Remove 24 periods around test set
+    # embargo_length: 12       # 12-period embargo after training
+    # shuffle: false           # Keep time order
+
+  # ROBUSTNESS TESTING CONFIGURATION
+  robustness_test:
+    enabled: true              # Enable robustness testing
+    method: "monte_carlo"      # Options: monte_carlo, bootstrap, parameter_sensitivity
+    
+    # Monte Carlo settings
+    n_simulations: 1000        # Number of robustness simulations
+    
+    # Perturbation methods to test
+    perturbation_methods:
+      - "price_noise"          # Add random noise to prices
+      - "bootstrap"            # Bootstrap resampling of data
+      - "volume_noise"         # Add noise to volume data
+      
+    noise_level: 0.01          # 1% noise level for perturbations
+    
+    # Risk metrics to calculate
+    confidence_levels:
+      - 0.95                   # 95% VaR and ES
+      - 0.99                   # 99% VaR and ES
+
+  # STATISTICAL TESTING (optional)
+  statistical_tests:
+    enabled: true
+    
+    # Tests to perform
+    tests:
+      - name: "t_test"
+        description: "T-test for mean return significance"
+        confidence_level: 0.95
+        
+      - name: "sharpe_test"
+        description: "Sharpe ratio significance test"
+        confidence_level: 0.95
+        
+      - name: "drawdown_test"
+        description: "Maximum drawdown distribution test"
+        confidence_level: 0.95
+
+# OUTPUT CONFIGURATION
+output:
+  # Save optimization results
+  save_results: true
+  results_file: "optimization_results.json"
+  
+  # Generate plots
+  generate_plots: true
+  plots_directory: "optimization_plots"
+  
+  # Plot types to generate
+  plots:
+    - "convergence"            # Optimization convergence
+    - "parameter_correlation"  # Parameter correlation matrix
+    - "validation_performance" # Out-of-sample performance
+    - "robustness_distribution" # Robustness test results
+    - "risk_metrics"           # VaR and ES distributions
+    
+  # Detailed logging
+  log_level: "INFO"           # Options: DEBUG, INFO, WARNING, ERROR
+  log_file: "optimization.log"
+
+# ADVANCED SETTINGS
+advanced:
+  # Parallel processing (future feature)
+  n_jobs: 1                   # Number of parallel workers
+  
+  # Memory management
+  max_memory_gb: 4            # Maximum memory usage
+  
+  # Checkpointing
+  checkpoint_interval: 10     # Save progress every N iterations
+  checkpoint_file: "optimization_checkpoint.pkl"
+  
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 20              # Stop if no improvement for N iterations
+    min_delta: 0.001          # Minimum improvement threshold
