@@ -258,7 +258,7 @@ class DataFeed:
                     # Map common exchange names
                     exchange_class_name = {
                         "binanceus": "binanceus",
-                        "coinbase": "coinbasepro",
+                        "coinbase": "coinbase",
                         "kraken": "kraken",
                         "binance": "binance",
                     }.get(source.lower(), source.lower())
@@ -309,13 +309,15 @@ class DataFeed:
             all_data = []
             current_since = since
 
-            # Calculate appropriate chunk size based on timeframe
-            if timeframe == "1m":
+            # Calculate appropriate chunk size based on timeframe and exchange
+            if source.lower() == "coinbase":
+                limit = 300  # Coinbase max limit
+            elif timeframe == "1m":
                 limit = 1000  # Most exchanges limit to 1000 candles
             else:
                 limit = 1000
 
-            max_iterations = 100  # Prevent infinite loops
+            max_iterations = 1000  # Prevent infinite loops - allow more iterations for large date ranges
             iteration = 0
 
             while current_since < until and iteration < max_iterations:
@@ -350,10 +352,11 @@ class DataFeed:
                         all_data.append(df_chunk)
 
                     # Update since for next iteration
-                    if len(ohlcv) < limit:
-                        break  # Got all available data
-
                     current_since = ohlcv[-1][0] + 1  # Start from next timestamp
+                    
+                    # Only break if we got fewer rows AND we've reached the target date
+                    if len(ohlcv) < limit and current_since >= until:
+                        break
 
                 except ccxt.RateLimitExceeded:
                     # Wait and retry

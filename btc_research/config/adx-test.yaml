@@ -1,0 +1,37 @@
+name: "ADX Trend Filter Test"
+description: "Test configuration for ADX trend filter indicator"
+
+# Data configuration
+data:
+  symbol: "BTC/USDT"
+  timeframe: "15m"
+  start_date: "2023-01-01"
+  end_date: "2023-01-31"
+  source: "binance"
+
+# Indicator configuration
+indicators:
+  - id: "adx_14"
+    type: "ADX"
+    timeframe: "15m"
+    period: 14
+    trend_threshold: 25.0
+    range_threshold: 20.0
+    smoothing_method: "wilder"
+
+# Engine configuration
+engine:
+  lookback_periods: 100
+  warmup_periods: 50
+  enable_caching: true
+  
+# Output configuration
+output:
+  format: "csv"
+  path: "data/adx_test_output.csv"
+  save_raw_data: true
+  
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

@@ -19,6 +19,9 @@ jsonschema = "^4.17.0"
 ta = "^0.10.2"
 scikit-learn = "^1.3.0"
 tqdm = "^4.65.0"
+matplotlib = "^3.7.0"
+seaborn = "^0.12.0"
+plotly = "^5.17.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.0.0"
@@ -35,6 +38,7 @@ psutil = "^5.9.0"
 btc-download = "btc_research.cli.download:main"
 btc-backtest = "btc_research.cli.backtest:main"
 btc-optimise = "btc_research.cli.optimise:main"
+btc-visualize = "btc_research.cli.visualize:main"
 
 [build-system]
 requires = ["poetry-core"]

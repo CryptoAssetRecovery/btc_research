@@ -1,0 +1,153 @@
+name: "VP-FVG Confluence Strategy"
+description: "A confluence strategy combining Volume Profile and Fair Value Gap indicators to identify high-probability reversal and continuation setups."
+symbol: "BTC/USDT"
+exchange: "binanceus"
+
+# Multi-timeframe approach for comprehensive analysis
+timeframes:
+  entry: "15m"
+  analysis: "1h"
+
+indicators:
+  # Volume Profile - 5-day lookback with enhanced HVN/LVN detection
+  - id: "VolumeProfile"
+    type: "VolumeProfile"
+    timeframe: "15m"
+    lookback: 480                # 5 days = 480 * 15m
+    lookback_hours: 120          # 5 days = 120 hours
+    price_bins: 50
+    value_area_pct: 70
+    update_frequency: 1
+    min_volume_threshold: 0.01
+    hvn_threshold: 1.5           # High Volume Node threshold
+    lvn_threshold: 0.5           # Low Volume Node threshold
+    atr_period: 14
+    atr_multiplier: 2.0
+    enable_vectorization: true
+
+  # Fair Value Gap - Enhanced with VP bin tagging
+  - id: "FVG"
+    type: "FVG"
+    timeframe: "15m"
+    min_gap_pips: 1.0
+    max_lookback: 500
+
+  # VP-FVG Confluence Signal - Core trading logic
+  - id: "VPFVGSignal"
+    type: "VPFVGSignal"
+    timeframe: "15m"
+    atr_period: 14
+    lvn_dist_multiplier: 0.25    # 0.25 × ATR for LVN proximity
+    poc_shift_multiplier: 0.5    # 0.5 × ATR for POC shift threshold
+    hvn_overlap_pct: 0.7         # 70% overlap for HVN confluence
+    min_fvg_size: 1.0            # Minimum FVG size
+    lookback_validation: 20       # Bars to look back for validation
+  
+  # Risk Management - ATR-based position management with R-multiple system
+  - id: "RiskManagement"
+    type: "RiskManagement"
+    timeframe: "15m"
+    atr_period: 14
+    initial_stop_atr_mult: 0.5   # Initial stop: FVG zone ± 0.5 × ATR
+    trailing_stop_atr_mult: 1.0  # Trailing stop: 1 × ATR behind price
+    target_atr_mult: 2.0         # Target: 2 × ATR from entry
+    breakeven_r_mult: 1.0        # Move to breakeven at R=1
+    enable_trailing: true        # Enable trailing stop functionality
+  
+  # ADX Regime Filter - Multi-timeframe bias for reversal vs continuation
+  - id: "ADX_15m"
+    type: "ADX"
+    timeframe: "15m"
+    period: 14
+    trend_threshold: 25.0        # ADX > 25 indicates trending market
+    range_threshold: 20.0        # ADX < 20 indicates ranging market
+    smoothing_method: "wilder"   # Wilder's smoothing method
+  
+  # ADX on higher timeframe for regime filtering
+  - id: "ADX_1h"
+    type: "ADX"
+    timeframe: "1h"
+    period: 14
+    trend_threshold: 25.0        # ADX > 25 indicates trending market
+    range_threshold: 20.0        # ADX < 20 indicates ranging market
+    smoothing_method: "wilder"   # Wilder's smoothing method
+  
+  # EMA 200 on 4h timeframe for secular market bias filtering
+  - id: "EMA_4h_200"
+    type: "EMA"
+    timeframe: "4h"
+    period: 200                  # 200-period EMA for long-term bias
+
+# VP-FVG Confluence Trading Logic
+logic:
+  # LONG ENTRY CONDITIONS - Reversal Setup
+  # Bullish FVG near LVN (Low Volume Node) with confluence confirmation
+  entry_long:
+    - "VPFVGSignal_vf_long"        # Primary confluence signal
+    - "VPFVGSignal_vf_atr > 0"             # Valid ATR calculation
+    - "VPFVGSignal_vf_lvn_distance_pct <= 0.25" # Within 0.25 ATR of LVN
+    - "ADX_1h_ADX_value < 20"              # Reversal setup: ADX < 20 (ranging market)
+    - "ADX_1h_DI_bearish == False"         # Prevent longs when DI is bearish
+    - "close > EMA_4h_200_value"           # Bull bias filter: only long above 200 EMA
+
+  # LONG EXIT CONDITIONS
+  exit_long:
+    - "VPFVGSignal_vf_long == False"       # Confluence signal ends
+    - "VPFVGSignal_vf_poc_shift_pct > 0.5"     # POC shift indicates trend change
+    - "RiskManagement_exit_long_risk"     # Risk management exit (stop/target hit)
+
+  # SHORT ENTRY CONDITIONS - Continuation Setup
+  # Bearish FVG overlapping HVN (High Volume Node) with POC momentum
+  entry_short:
+    - "VPFVGSignal_vf_short"       # Primary confluence signal
+    - "VPFVGSignal_vf_atr > 0"             # Valid ATR calculation  
+    - "VPFVGSignal_vf_hvn_overlap >= 0.15" # Minimum 15% HVN overlap (reduced from 30%)
+    - "ADX_1h_ADX_value >= 20"             # Continuation setup: ADX >= 20 (reduced from 25)
+    - "ADX_1h_DI_bearish == True"          # Bearish directional bias (DI- > DI+)
+    - "close < EMA_4h_200_value"           # Bear bias filter: only short below 200 EMA
+
+  # SHORT EXIT CONDITIONS
+  exit_short:
+    - "VPFVGSignal_vf_short == False"      # Confluence signal ends
+    - "VPFVGSignal_vf_poc_shift_pct > 0.5"     # POC shift indicates trend change
+    - "RiskManagement_exit_short_risk"    # Risk management exit (stop/target hit)
+
+# Extended backtesting for comprehensive market condition testing
+backtest:
+  cash: 100000          # Initial capital
+  commission: 0.0004    # 0.04% commission per trade (realistic for spot)
+  from: "2021-11-01"    # Start date
+  to: "2022-11-01"      # End date
+
+# Optimization parameters (disabled for now)
+optimization:
+  parameters:
+    # VP-FVG Confluence Signal parameters
+    - name: "VPFVGSignal.lvn_dist_multiplier"
+      type: "float"
+      low: 0.1
+      high: 0.5
+      default: 0.25
+      step: 0.05
+      description: "LVN distance multiplier"
+    - name: "VPFVGSignal.poc_shift_multiplier"
+      type: "float"
+      low: 0.3
+      high: 0.8
+      default: 0.5
+      step: 0.1
+      description: "POC shift multiplier"
+    - name: "VPFVGSignal.hvn_overlap_pct"
+      type: "float"
+      low: 0.5
+      high: 0.9
+      default: 0.7
+      step: 0.1
+      description: "HVN overlap percentage"
+
+  # Default optimization settings
+  defaults:
+    method: "bayesian"
+    validation: "walk_forward"
+    metric: "sharpe_ratio"
+    max_iterations: 50

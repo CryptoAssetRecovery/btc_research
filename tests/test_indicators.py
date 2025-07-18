@@ -504,6 +504,8 @@ class TestFVGIndicator:
             "FVG_gap_filled",
             "FVG_nearest_support",
             "FVG_nearest_resistance",
+            "FVG_nearest_support_mid",
+            "FVG_nearest_resistance_mid",
             "FVG_active_bullish_gaps",
             "FVG_active_bearish_gaps",
         ]
@@ -515,6 +517,8 @@ class TestFVGIndicator:
         assert result["FVG_gap_filled"].dtype == bool
         assert result["FVG_nearest_support"].dtype == float
         assert result["FVG_nearest_resistance"].dtype == float
+        assert result["FVG_nearest_support_mid"].dtype == float
+        assert result["FVG_nearest_resistance_mid"].dtype == float
         assert result["FVG_active_bullish_gaps"].dtype == int
         assert result["FVG_active_bearish_gaps"].dtype == int
 
@@ -651,6 +655,8 @@ class TestFVGIndicator:
             "FVG_gap_filled",
             "FVG_nearest_support",
             "FVG_nearest_resistance",
+            "FVG_nearest_support_mid",
+            "FVG_nearest_resistance_mid",
             "FVG_active_bullish_gaps",
             "FVG_active_bearish_gaps",
         ]

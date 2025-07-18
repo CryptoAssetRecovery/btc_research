@@ -8,11 +8,14 @@ and provides comprehensive performance statistics.
 """
 
 import warnings
-from typing import Any
+from typing import Any, Optional
 
 import backtrader as bt
 import numpy as np
 import pandas as pd
+
+# Import position sizing module
+from btc_research.core.position_sizing import PositionSizer, BacktraderPositionSizer, PositionSizingError
 
 # Optional matplotlib import for plotting
 try:
@@ -177,6 +180,8 @@ class DynamicStrategy(bt.Strategy):
         ("config", None),  # Configuration dictionary
         ("dataframe", None),  # Original DataFrame with indicator columns
         ("debug", False),  # Enable debug logging
+        ("risk_pct", 0.01),  # Risk percentage per trade (1%)
+        ("use_position_sizing", True),  # Enable position sizing
     )
 
     def __init__(self):
@@ -184,6 +189,8 @@ class DynamicStrategy(bt.Strategy):
         self.config = self.params.config
         self.df = self.params.dataframe
         self.debug = self.params.debug
+        self.risk_pct = self.params.risk_pct
+        self.use_position_sizing = self.params.use_position_sizing
 
         if self.config is None:
             raise BacktesterError("Strategy requires config parameter")
@@ -193,6 +200,20 @@ class DynamicStrategy(bt.Strategy):
         # Initialize strategy logic helper
         self.strategy_logic = StrategyLogic(self.config, self.df, self.debug)
 
+        # Initialize position sizer
+        if self.use_position_sizing:
+            try:
+                self.position_sizer = BacktraderPositionSizer(
+                    risk_pct=self.risk_pct,
+                    max_position_pct=0.2  # Maximum 20% of equity per position
+                )
+            except Exception as e:
+                if self.debug:
+                    print(f"Failed to initialize position sizer: {e}")
+                self.position_sizer = None
+        else:
+            self.position_sizer = None
+
         # Track current position state
         self.position_size = 0
         self.current_index = 0
@@ -201,6 +222,87 @@ class DynamicStrategy(bt.Strategy):
             print(f"Strategy initialized with {len(self.df)} data points")
             print(f"Entry long rules: {self.strategy_logic.entry_long_rules}")
             print(f"Exit long rules: {self.strategy_logic.exit_long_rules}")
+            print(f"Position sizing enabled: {self.use_position_sizing}")
+            print(f"Risk per trade: {self.risk_pct:.1%}")
+
+    def _calculate_position_size(self, entry_price: float, stop_price: float, is_long: bool) -> float:
+        """
+        Calculate position size using risk-based position sizing.
+        
+        Args:
+            entry_price: Intended entry price
+            stop_price: Stop loss price
+            is_long: Position direction
+            
+        Returns:
+            Position size for the trade
+        """
+        if not self.use_position_sizing or self.position_sizer is None:
+            return 1.0  # Default fixed size
+        
+        try:
+            size = self.position_sizer.calculate_bt_position_size(
+                strategy=self,
+                data=self.data,
+                entry_price=entry_price,
+                stop_price=stop_price,
+                is_long=is_long
+            )
+            
+            if self.debug:
+                equity = self.broker.getvalue()
+                risk_amount = abs(entry_price - stop_price) * size
+                print(f"Position size calculation: {size:.6f} shares")
+                print(f"Risk amount: ${risk_amount:.2f} ({risk_amount/equity:.2%} of equity)")
+            
+            return size
+            
+        except Exception as e:
+            if self.debug:
+                print(f"Position sizing failed: {e}, using default size")
+            return 1.0  # Fallback to default size
+
+    def _get_stop_price(self, eval_context: dict, is_long: bool) -> Optional[float]:
+        """
+        Get stop loss price from risk management indicators.
+        
+        Args:
+            eval_context: Current bar evaluation context
+            is_long: Position direction
+            
+        Returns:
+            Stop loss price if available, None otherwise
+        """
+        try:
+            if is_long:
+                # Look for long stop loss from risk management
+                if 'long_stop_loss' in eval_context:
+                    return eval_context['long_stop_loss']
+                elif 'long_trailing_stop' in eval_context:
+                    return eval_context['long_trailing_stop']
+            else:
+                # Look for short stop loss from risk management
+                if 'short_stop_loss' in eval_context:
+                    return eval_context['short_stop_loss']
+                elif 'short_trailing_stop' in eval_context:
+                    return eval_context['short_trailing_stop']
+            
+            # Fallback: calculate ATR-based stop if ATR is available
+            if 'VPFVGSignal_vf_atr' in eval_context:
+                atr = eval_context['VPFVGSignal_vf_atr']
+                current_price = self.data.close[0]
+                if atr and not pd.isna(atr) and atr > 0:
+                    if is_long:
+                        return current_price - (2.0 * atr)  # 2 ATR stop
+                    else:
+                        return current_price + (2.0 * atr)  # 2 ATR stop
+            
+            return None
+            
+        except Exception as e:
+            if self.debug:
+                print(f"Failed to get stop price: {e}")
+            return None
 
     def next(self):
         """
@@ -251,7 +353,16 @@ class DynamicStrategy(bt.Strategy):
                 if self.strategy_logic.evaluate_rules(
                     self.strategy_logic.entry_long_rules, eval_context
                 ):
-                    order = self.buy()
+                    # Calculate position size based on risk management
+                    entry_price = self.data.close[0]
+                    stop_price = self._get_stop_price(eval_context, True)  # Long position
+                    
+                    if stop_price is not None and stop_price > 0:
+                        size = self._calculate_position_size(entry_price, stop_price, True)
+                        order = self.buy(size=size)
+                    else:
+                        order = self.buy()  # Use default sizing if no stop available
+                    
                     if self.debug:
                         print(f"Long entry at {current_time}: {self.data.close[0]} (position: {self.position.size}, order: {order})")
 
@@ -260,7 +371,16 @@ class DynamicStrategy(bt.Strategy):
                 if self.strategy_logic.evaluate_rules(
                     self.strategy_logic.entry_short_rules, eval_context
                 ):
-                    order = self.sell()
+                    # Calculate position size based on risk management
+                    entry_price = self.data.close[0]
+                    stop_price = self._get_stop_price(eval_context, False)  # Short position
+                    
+                    if stop_price is not None and stop_price > 0:
+                        size = self._calculate_position_size(entry_price, stop_price, False)
+                        order = self.sell(size=size)
+                    else:
+                        order = self.sell()  # Use default sizing if no stop available
+                    
                     if self.debug:
                         print(f"Short entry at {current_time}: {self.data.close[0]} (position: {self.position.size}, order: {order})")
 
@@ -330,19 +450,24 @@ class Backtester:
         >>> print(f"Total return: {stats['total_return']:.2%}")
     """
 
-    def __init__(self, config: dict[str, Any], debug: bool = False):
+    def __init__(self, config: dict[str, Any], debug: bool = False, 
+                 risk_pct: float = 0.01, use_position_sizing: bool = True):
         """
         Initialize the Backtester with configuration.
 
         Args:
             config: Configuration dictionary containing logic expressions
             debug: Enable debug output
+            risk_pct: Risk percentage per trade (0.01 = 1%)
+            use_position_sizing: Enable risk-based position sizing
 
         Raises:
             BacktesterError: If configuration is invalid
         """
         self.config = config
         self.debug = debug
+        self.risk_pct = risk_pct
+        self.use_position_sizing = use_position_sizing
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -447,8 +572,10 @@ class Backtester:
             cerebro.broker.setcash(cash)
             cerebro.broker.setcommission(commission=commission)
 
-            # Add position sizer - use percentage of available cash
-            cerebro.addsizer(bt.sizers.PercentSizer, percents=95)  # Use 95% of available cash
+            # Add position sizer - use risk-based position sizing
+            # Note: For proper risk management, position sizing should be calculated
+            # in the strategy using stop loss information. This is a fallback sizer.
+            cerebro.addsizer(bt.sizers.FixedSize, stake=1.0)  # Default fixed size
 
             # Create and add data feed
             data_feed = self._create_data_feed(df)
@@ -456,7 +583,12 @@ class Backtester:
 
             # Add dynamically created strategy
             cerebro.addstrategy(
-                DynamicStrategy, config=self.config, dataframe=df, debug=self.debug
+                DynamicStrategy, 
+                config=self.config, 
+                dataframe=df, 
+                debug=self.debug,
+                risk_pct=self.risk_pct,
+                use_position_sizing=self.use_position_sizing
             )
 
             # Add analyzers for comprehensive statistics
@@ -580,15 +712,22 @@ class Backtester:
             gross_profit = won_pnl_section.get("total", 0) if won_pnl_section else 0
             gross_loss = abs(lost_pnl_section.get("total", 0)) if lost_pnl_section else 0
             
-            stats["profit_factor"] = (
-                gross_profit / gross_loss
-                if gross_loss > 0
-                else float("inf")
-                if gross_profit > 0
-                else 0.0
-            )
+            if gross_loss > 0:
+                stats["profit_factor"] = gross_profit / gross_loss
+            elif gross_profit > 0:
+                # No losses but profits exist - indicate perfect profit factor
+                stats["profit_factor"] = float("inf")
+                stats["profit_factor_display"] = "Perfect (no losses)"
+            else:
+                stats["profit_factor"] = 0.0
+                stats["profit_factor_display"] = "0.00"
         else:
             stats["profit_factor"] = 0.0
+            stats["profit_factor_display"] = "0.00"
+        
+        # Set display value for normal profit factors
+        if "profit_factor_display" not in stats:
+            stats["profit_factor_display"] = f"{stats['profit_factor']:.2f}"
 
         # Average trade metrics - use net P&L average
         if stats["num_trades"] > 0:
@@ -656,6 +795,9 @@ def create_backtest_summary(stats: dict[str, Any]) -> str:
     Returns:
         Formatted string summary
     """
+    # Use the display format for profit factor if available
+    profit_factor_display = stats.get('profit_factor_display', f"{stats['profit_factor']:.2f}")
+    
     summary = f"""
 Backtest Results Summary
 ========================
@@ -664,7 +806,7 @@ Sharpe Ratio:     {stats['sharpe_ratio']:.2f}
 Max Drawdown:     {stats['max_drawdown']:.2%}
 Number of Trades: {stats['num_trades']}
 Win Rate:         {stats['win_rate']:.2%}
-Profit Factor:    {stats['profit_factor']:.2f}
+Profit Factor:    {profit_factor_display}
 Average Trade:    ${stats['avg_trade']:.2f}
 Final Value:      ${stats['final_value']:.2f}
 Initial Cash:     ${stats['initial_cash']:.2f}

@@ -1,0 +1,167 @@
+# Risk-Based Position Sizing Configuration
+# This configuration demonstrates the new position sizing approach that replaces
+# the problematic 95% capital allocation with proper risk-per-trade management.
+
+name: "Risk-Based Position Sizing Strategy"
+description: "VP-FVG strategy with proper risk-per-trade position sizing"
+
+# Data Configuration
+data:
+  symbol: "BTC/USD"
+  timeframe: "1h"
+  start: "2024-01-01"
+  end: "2024-01-15"
+  source: "binanceus"
+
+# Indicators Configuration
+indicators:
+  # Volume Profile for market structure
+  VolumeProfile:
+    period: 24
+    value_area_percent: 70
+    
+  # Fair Value Gap detection
+  FVG:
+    min_gap_size: 0.001
+    max_age: 100
+    
+  # VP-FVG confluence signal
+  VPFVGSignal:
+    vp_period: 24
+    fvg_min_gap: 0.001
+    fvg_max_age: 100
+    atr_period: 14
+    min_volume_threshold: 1000
+    
+  # Risk Management with ATR-based stops
+  RiskManagement:
+    atr_period: 14
+    initial_stop_atr_mult: 1.0    # 1.0 ATR for initial stop
+    trailing_stop_atr_mult: 1.5   # 1.5 ATR for trailing stop
+    target_atr_mult: 2.0          # 2.0 ATR for target
+    breakeven_r_mult: 1.0         # Move to breakeven at 1R
+    enable_trailing: true
+
+# Position Sizing Configuration
+position_sizing:
+  # Risk Management Parameters
+  risk_pct: 0.01                  # Risk 1% of equity per trade
+  max_position_pct: 0.2           # Maximum 20% of equity per position
+  
+  # Position Size Limits
+  min_position_size: 0.0001       # Minimum 0.0001 BTC
+  max_position_size: null         # No maximum limit (use max_position_pct)
+  
+  # Stop Loss Validation
+  min_stop_distance_pct: 0.001    # Minimum 0.1% stop distance
+  max_stop_distance_pct: 0.1      # Maximum 10% stop distance
+  
+  # ATR Configuration for Stop Loss
+  atr_period: 14
+  atr_multiplier: 2.0
+
+# Trading Logic
+logic:
+  # Long Entry Conditions
+  entry_long:
+    - "VPFVGSignal_vf_long == True"          # VP-FVG long signal
+    - "VPFVGSignal_vf_atr > 0"               # Valid ATR for stop calculation
+    - "long_stop_loss > 0"                   # Valid stop loss available
+    
+  # Long Exit Conditions  
+  exit_long:
+    - "exit_long_risk == True"               # Risk management exit signal
+    
+  # Short Entry Conditions
+  entry_short:
+    - "VPFVGSignal_vf_short == True"         # VP-FVG short signal
+    - "VPFVGSignal_vf_atr > 0"               # Valid ATR for stop calculation
+    - "short_stop_loss > 0"                  # Valid stop loss available
+    
+  # Short Exit Conditions
+  exit_short:
+    - "exit_short_risk == True"              # Risk management exit signal
+
+# Backtesting Configuration
+backtest:
+  # Starting Capital
+  initial_cash: 10000
+  
+  # Commission and Slippage
+  commission: 0.001                          # 0.1% commission
+  slippage: 0.0                             # No slippage for now
+  
+  # Position Sizing Method
+  use_position_sizing: true                  # Enable risk-based position sizing
+  risk_pct: 0.01                            # 1% risk per trade
+  
+  # Legacy Settings (for comparison)
+  # use_position_sizing: false              # Use old fixed sizing
+  # percent_sizer: 95                       # Old 95% capital allocation
+
+# Performance Targets
+targets:
+  # Risk Metrics
+  max_drawdown: 0.15                        # Maximum 15% drawdown
+  target_sharpe: 1.5                        # Target Sharpe ratio >= 1.5
+  
+  # Return Metrics
+  min_annual_return: 0.2                    # Minimum 20% annual return
+  target_win_rate: 0.6                      # Target 60% win rate
+  
+  # Risk Control
+  max_consecutive_losses: 5                 # Maximum 5 consecutive losses
+  max_single_loss: 0.02                     # Maximum 2% single trade loss
+
+# Risk Management Rules
+risk_rules:
+  # Position Sizing Rules
+  - "Never risk more than 1% of equity per trade"
+  - "Never allocate more than 20% of equity to a single position"
+  - "Always use stop losses based on market structure (ATR)"
+  - "Scale position size based on stop distance"
+  
+  # Stop Loss Rules
+  - "Initial stop: Market structure + 1.0 ATR"
+  - "Trailing stop: 1.5 ATR behind favorable price"
+  - "Move to breakeven at 1R profit"
+  - "Target: 2R (risk-reward ratio)"
+  
+  # Exit Rules
+  - "Exit on risk management signals"
+  - "Exit on stop loss hits"
+  - "Exit on target achievement"
+  - "No discretionary exits"
+
+# Notes and Documentation
+notes: |
+  Risk-Based Position Sizing Strategy
+  
+  This configuration implements a professional position sizing approach that:
+  
+  1. **Limits Risk**: Each trade risks exactly 1% of account equity
+  2. **Scales with Volatility**: Position size adjusts based on ATR stop distance
+  3. **Prevents Over-Leverage**: Maximum 20% position size prevents concentration
+  4. **Uses Market Structure**: Stops based on VP-FVG levels and ATR
+  5. **Maintains Discipline**: Systematic entry/exit rules with no discretion
+  
+  Key Improvements over 95% Capital Allocation:
+  - Consistent risk exposure across all trades
+  - Better risk-adjusted returns
+  - Reduced maximum drawdown
+  - Improved position sizing for different market conditions
+  - Professional risk management approach
+  
+  Position Sizing Formula:
+  - Long: shares = (equity * risk_pct) / (entry_price - stop_price)
+  - Short: shares = (equity * risk_pct) / (stop_price - entry_price)
+  
+  This ensures that regardless of entry price or stop distance, the dollar
+  risk remains constant at 1% of equity per trade.
+
+# Version and Compatibility
+version: "1.0"
+compatibility:
+  min_engine_version: "1.0"
+  required_indicators: ["VolumeProfile", "FVG", "VPFVGSignal", "RiskManagement"]
+  required_modules: ["position_sizing"]
