@@ -17,6 +17,14 @@ import numpy as np
 from typing import Optional, Union, Tuple
 from dataclasses import dataclass
 
+# Optional backtrader import for integration
+try:
+    import backtrader as bt
+    HAS_BACKTRADER = True
+except ImportError:
+    bt = None
+    HAS_BACKTRADER = False
+
 
 @dataclass
 class PositionSizeResult:
@@ -400,3 +408,118 @@ def validate_position_parameters(equity: float,
         return True
     except PositionSizingError:
         return False
+
+
+class BacktraderPositionSizer:
+    """
+    Backtrader-compatible position sizing class.
+    
+    This class provides integration with Backtrader's position sizing system
+    while using our risk-based position sizing calculations.
+    """
+    
+    def __init__(self, 
+                 risk_pct: float = 0.01,
+                 max_position_pct: float = 0.20,
+                 min_position_value: float = 100.0):
+        """
+        Initialize Backtrader Position Sizer.
+        
+        Args:
+            risk_pct (float): Risk percentage per trade
+            max_position_pct (float): Maximum position as % of equity
+            min_position_value (float): Minimum position value
+        """
+        self.sizer = PositionSizer(
+            default_risk_pct=risk_pct,
+            max_position_pct=max_position_pct,
+            min_position_value=min_position_value
+        )
+    
+    def get_position_size(self, 
+                         strategy,
+                         entry_price: float,
+                         stop_price: float,
+                         risk_pct: Optional[float] = None) -> float:
+        """
+        Calculate position size for Backtrader strategy.
+        
+        Args:
+            strategy: Backtrader strategy instance
+            entry_price (float): Entry price
+            stop_price (float): Stop price
+            risk_pct (float): Risk percentage override
+            
+        Returns:
+            float: Position size (number of units)
+        """
+        if not HAS_BACKTRADER:
+            raise PositionSizingError("Backtrader is required for BacktraderPositionSizer")
+        
+        # Get current equity from broker
+        equity = strategy.broker.getvalue()
+        
+        # Calculate position size using our risk-based approach
+        return self.sizer.calculate_backtrader_size(
+            equity=equity,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            risk_pct=risk_pct
+        )
+    
+    def calculate_size(self, 
+                      equity: float,
+                      entry_price: float,
+                      stop_price: float,
+                      risk_pct: Optional[float] = None) -> float:
+        """
+        Calculate position size directly.
+        
+        Args:
+            equity (float): Current equity
+            entry_price (float): Entry price
+            stop_price (float): Stop price
+            risk_pct (float): Risk percentage
+            
+        Returns:
+            float: Position size (number of units)
+        """
+        return self.sizer.calculate_backtrader_size(
+            equity=equity,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            risk_pct=risk_pct
+        )
+    
+    def calculate_bt_position_size(self, 
+                                  strategy,
+                                  data,
+                                  entry_price: float,
+                                  stop_price: float,
+                                  is_long: bool) -> float:
+        """
+        Calculate position size for Backtrader with strategy context.
+        
+        Args:
+            strategy: Backtrader strategy instance
+            data: Backtrader data feed
+            entry_price (float): Entry price
+            stop_price (float): Stop price
+            is_long (bool): Position direction
+            
+        Returns:
+            float: Position size (number of units)
+        """
+        if not HAS_BACKTRADER:
+            raise PositionSizingError("Backtrader is required for BacktraderPositionSizer")
+        
+        # Get current equity from broker
+        equity = strategy.broker.getvalue()
+        
+        # Calculate position size using our risk-based approach
+        return self.sizer.calculate_backtrader_size(
+            equity=equity,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            risk_pct=None  # Use default risk percentage
+        )

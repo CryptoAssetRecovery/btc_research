@@ -1,1010 +1,519 @@
 """
-Equity Protection Module for BTC Research Framework.
+Equity Protection Module for First-Loss Stop Implementation.
 
-This module implements comprehensive equity curve protection mechanisms to prevent
-catastrophic drawdowns. It provides first-loss stop functionality that flattens
-all positions and disables new entries when drawdown exceeds configurable thresholds.
+This module provides comprehensive equity curve protection mechanisms to prevent
+catastrophic drawdowns. It implements a first-loss stop that flattens all positions
+and disables new entries when drawdown exceeds a configurable threshold.
 
 Key Features:
 - Real-time equity curve tracking
-- Configurable drawdown thresholds (default 25%)
-- Automatic position flattening on threshold breach
-- Trading disable/enable based on bias changes
-- Comprehensive statistics and monitoring
-- Backtrader integration for live trading protection
-
-Usage:
-    >>> from btc_research.core.equity_protection import EquityProtection
-    >>> 
-    >>> # Initialize with 25% drawdown threshold
-    >>> protection = EquityProtection(drawdown_threshold=0.25)
-    >>> 
-    >>> # Update equity in trading loop
-    >>> protection.update_equity(current_equity)
-    >>> 
-    >>> # Check if trading should be disabled
-    >>> if protection.should_disable_trading():
-    ...     # Flatten all positions and disable new entries
-    ...     pass
-    >>> 
-    >>> # Re-enable after bias flip
-    >>> protection.reset_on_bias_flip("bull")
+- Configurable drawdown threshold (default 25%)
+- Automatic trading suspension during high drawdown
+- Bias flip detection for re-enabling trading
+- Comprehensive equity statistics and visualization
 """
-
-import warnings
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from typing import Optional, Dict, List, Tuple
+from dataclasses import dataclass
+from enum import Enum
+import warnings
 
-try:
-    import backtrader as bt
-    HAS_BACKTRADER = True
-except ImportError:
-    bt = None
-    HAS_BACKTRADER = False
-
+# Optional matplotlib import for plotting
 try:
     import matplotlib.pyplot as plt
     HAS_MATPLOTLIB = True
 except ImportError:
-    plt = None
     HAS_MATPLOTLIB = False
 
 
-__all__ = [
-    "EquityProtection",
-    "EquityProtectionError", 
-    "EquityProtectionAnalyzer",
-    "ProtectedStrategy",
-    "create_equity_protection_config"
-]
+class TradingState(Enum):
+    """Trading state enumeration."""
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    DISABLED = "disabled"
 
 
-class EquityProtectionError(Exception):
-    """Raised when there are issues with equity protection operations."""
-    pass
+class BiasDirection(Enum):
+    """Market bias direction enumeration."""
+    BULL = "bull"
+    BEAR = "bear"
+    NEUTRAL = "neutral"
+
+
+@dataclass
+class EquityStats:
+    """Equity curve statistics."""
+    current_equity: float
+    peak_equity: float
+    current_drawdown: float
+    max_drawdown: float
+    drawdown_percentage: float
+    trading_state: TradingState
+    bias_direction: BiasDirection
+    equity_curve: List[float]
+    drawdown_curve: List[float]
+    timestamps: List[str]
 
 
 class EquityProtection:
     """
-    Comprehensive equity protection system with first-loss stop functionality.
+    Equity Protection System with First-Loss Stop.
     
-    This class implements a sophisticated equity curve protection mechanism that
-    prevents catastrophic drawdowns by:
+    This class implements a comprehensive equity protection mechanism that:
+    1. Tracks equity curve and maximum drawdown in real-time
+    2. Implements configurable first-loss stop threshold
+    3. Disables new entries when drawdown threshold is exceeded
+    4. Re-enables trading when market bias flips
+    5. Provides equity curve visualization and statistics
     
-    1. **Continuous Monitoring**: Tracks equity curve and calculates real-time drawdown
-    2. **Threshold Protection**: Automatically disables trading when drawdown exceeds threshold
-    3. **Position Flattening**: Provides hooks to flatten all positions on threshold breach
-    4. **Bias-Based Recovery**: Re-enables trading only when market bias flips
-    5. **Comprehensive Statistics**: Detailed equity curve analysis and reporting
-    
-    The system is designed to prevent the kind of catastrophic drawdowns that can
-    occur with aggressive strategies, particularly in volatile markets like Bitcoin.
+    Attributes:
+        drawdown_threshold (float): Drawdown threshold for first-loss stop (default 25%)
+        bias_flip_threshold (float): Price change threshold for bias flip detection
+        equity_smoothing (int): Number of periods for equity smoothing
+        enable_bias_reset (bool): Whether to re-enable trading on bias flip
     """
     
-    def __init__(
-        self,
-        drawdown_threshold: float = 0.25,
-        enable_on_bias_flip: bool = True,
-        smoothing_window: int = 5,
-        min_equity_history: int = 10,
-        debug: bool = False
-    ):
+    def __init__(self,
+                 drawdown_threshold: float = 0.25,
+                 bias_flip_threshold: float = 0.10,
+                 equity_smoothing: int = 1,
+                 enable_bias_reset: bool = True,
+                 initial_equity: Optional[float] = None):
         """
-        Initialize equity protection system.
+        Initialize Equity Protection System.
         
         Args:
-            drawdown_threshold: Maximum drawdown before disabling trading (0.25 = 25%)
-            enable_on_bias_flip: Whether to re-enable trading on bias flip
-            smoothing_window: Window for equity curve smoothing (0 = no smoothing)
-            min_equity_history: Minimum history needed before protection activates
-            debug: Enable debug logging
+            drawdown_threshold (float): Drawdown threshold (0.25 = 25%)
+            bias_flip_threshold (float): Price change for bias flip (0.10 = 10%)
+            equity_smoothing (int): Periods for equity smoothing (1 = no smoothing)
+            enable_bias_reset (bool): Enable trading reset on bias flip
+            initial_equity (float, optional): Initial equity value to set as peak
         """
         self.drawdown_threshold = drawdown_threshold
-        self.enable_on_bias_flip = enable_on_bias_flip
-        self.smoothing_window = smoothing_window
-        self.min_equity_history = min_equity_history
-        self.debug = debug
+        self.bias_flip_threshold = bias_flip_threshold
+        self.equity_smoothing = equity_smoothing
+        self.enable_bias_reset = enable_bias_reset
         
-        # Core tracking variables
-        self.equity_history: List[Dict[str, Any]] = []
-        self.peak_equity = 0.0
-        self.current_equity = 0.0
+        # State tracking
+        self.equity_curve = []
+        self.drawdown_curve = []
+        self.timestamps = []
+        self.peak_equity = initial_equity or 0.0
+        self.current_equity = initial_equity or 0.0
         self.current_drawdown = 0.0
         self.max_drawdown = 0.0
+        self.trading_state = TradingState.ACTIVE
+        self.bias_direction = BiasDirection.NEUTRAL
         
-        # Protection state
-        self.protection_active = False
-        self.trading_disabled = False
-        self.protection_triggered_at = None
-        self.protection_triggered_equity = None
-        self.protection_triggered_drawdown = None
-        
-        # Bias tracking for recovery
-        self.current_bias = None
-        self.bias_history: List[Dict[str, Any]] = []
+        # Bias tracking
+        self.last_bias_price = None
+        self.bias_flip_count = 0
         self.last_bias_flip_time = None
         
         # Statistics
-        self.stats = {
-            'total_updates': 0,
-            'protection_triggers': 0,
-            'bias_flips': 0,
-            'trading_disabled_periods': 0,
-            'max_protection_duration': 0,
-            'average_protection_duration': 0
-        }
-        
-        if self.debug:
-            print(f"EquityProtection initialized with {drawdown_threshold:.1%} threshold")
+        self.drawdown_periods = 0
+        self.recovery_periods = 0
+        self.suspended_periods = 0
     
-    def update_equity(self, equity: float, timestamp: Optional[datetime] = None) -> Dict[str, Any]:
+    def update_equity(self, 
+                     current_equity: float, 
+                     timestamp: Optional[str] = None) -> dict:
         """
-        Update equity and check for protection triggers.
+        Update equity curve and check protection thresholds.
         
         Args:
-            equity: Current portfolio equity value
-            timestamp: Optional timestamp (defaults to current time)
+            current_equity (float): Current portfolio equity
+            timestamp (str, optional): Timestamp for tracking
             
         Returns:
-            Dictionary with update results and protection status
+            dict: Update result with protection status
         """
         if timestamp is None:
-            timestamp = datetime.now()
+            timestamp = f"Period_{len(self.equity_curve)}"
         
-        # Validate equity value
-        if not isinstance(equity, (int, float)) or equity <= 0:
-            raise EquityProtectionError(f"Invalid equity value: {equity}")
+        # Apply equity smoothing if enabled
+        if self.equity_smoothing > 1 and len(self.equity_curve) >= self.equity_smoothing:
+            recent_equity = self.equity_curve[-self.equity_smoothing:]
+            smoothed_equity = np.mean(recent_equity + [current_equity])
+            self.current_equity = smoothed_equity
+        else:
+            self.current_equity = current_equity
         
-        # Store previous state for comparison
-        previous_drawdown = self.current_drawdown
-        previous_protection_active = self.protection_active
-        
-        # Update equity tracking
-        self.current_equity = float(equity)
-        self.stats['total_updates'] += 1
+        # Update equity curve
+        self.equity_curve.append(self.current_equity)
+        self.timestamps.append(timestamp)
         
         # Update peak equity
         if self.current_equity > self.peak_equity:
             self.peak_equity = self.current_equity
-            if self.debug:
-                print(f"New equity peak: ${self.peak_equity:.2f}")
         
         # Calculate current drawdown
         if self.peak_equity > 0:
-            self.current_drawdown = (self.peak_equity - self.current_equity) / self.peak_equity
+            self.current_drawdown = self.peak_equity - self.current_equity
+            drawdown_percentage = self.current_drawdown / self.peak_equity
         else:
             self.current_drawdown = 0.0
+            drawdown_percentage = 0.0
         
         # Update maximum drawdown
-        if self.current_drawdown > self.max_drawdown:
-            self.max_drawdown = self.current_drawdown
+        if drawdown_percentage > self.max_drawdown:
+            self.max_drawdown = drawdown_percentage
         
-        # Store equity history
-        equity_record = {
-            'timestamp': timestamp,
+        # Update drawdown curve
+        self.drawdown_curve.append(drawdown_percentage)
+        
+        # Check protection thresholds
+        protection_triggered = self._check_protection_thresholds()
+        
+        # Update statistics
+        self._update_statistics()
+        
+        # Return update result
+        return {
             'equity': self.current_equity,
             'peak_equity': self.peak_equity,
-            'drawdown': self.current_drawdown,
-            'protection_active': self.protection_active,
-            'trading_disabled': self.trading_disabled
+            'drawdown': drawdown_percentage,
+            'protection_active': self.trading_state != TradingState.ACTIVE,
+            'protection_triggered': protection_triggered,
+            'trading_disabled': self.should_disable_trading()
         }
-        
-        self.equity_history.append(equity_record)
-        
-        # Apply smoothing if configured
-        if self.smoothing_window > 1 and len(self.equity_history) >= self.smoothing_window:
-            smoothed_drawdown = self._calculate_smoothed_drawdown()
-            equity_record['smoothed_drawdown'] = smoothed_drawdown
-        else:
-            equity_record['smoothed_drawdown'] = self.current_drawdown
-        
-        # Check for protection trigger
-        should_trigger = self._should_trigger_protection()
-        
-        if should_trigger and not self.protection_active:
-            self._trigger_protection(timestamp)
-            
-        # Prepare response
-        response = {
-            'timestamp': timestamp,
-            'equity': self.current_equity,
-            'drawdown': self.current_drawdown,
-            'protection_active': self.protection_active,
-            'trading_disabled': self.trading_disabled,
-            'protection_triggered': should_trigger and not previous_protection_active,
-            'drawdown_increased': self.current_drawdown > previous_drawdown
-        }
-        
-        if self.debug and (should_trigger or self.current_drawdown > 0.1):
-            print(f"Equity: ${self.current_equity:.2f}, Drawdown: {self.current_drawdown:.1%}, "
-                  f"Protection: {self.protection_active}, Trading: {not self.trading_disabled}")
-        
-        return response
     
-    def _should_trigger_protection(self) -> bool:
-        """Check if protection should be triggered based on current conditions."""
-        # Need minimum history before protection can activate
-        if len(self.equity_history) < self.min_equity_history:
-            return False
-        
-        # Check if already active
-        if self.protection_active:
-            return False
-        
-        # Use smoothed drawdown if available
-        if self.smoothing_window > 1 and len(self.equity_history) >= self.smoothing_window:
-            drawdown_to_check = self._calculate_smoothed_drawdown()
-        else:
-            drawdown_to_check = self.current_drawdown
-        
-        # Trigger if drawdown exceeds threshold
-        return drawdown_to_check >= self.drawdown_threshold
-    
-    def _trigger_protection(self, timestamp: datetime) -> None:
-        """Trigger equity protection mechanism."""
-        self.protection_active = True
-        self.trading_disabled = True
-        self.protection_triggered_at = timestamp
-        self.protection_triggered_equity = self.current_equity
-        self.protection_triggered_drawdown = self.current_drawdown
-        
-        self.stats['protection_triggers'] += 1
-        
-        if self.debug:
-            print(f"EQUITY PROTECTION TRIGGERED at {timestamp}")
-            print(f"  Equity: ${self.current_equity:.2f}")
-            print(f"  Drawdown: {self.current_drawdown:.1%}")
-            print(f"  Peak: ${self.peak_equity:.2f}")
-    
-    def _calculate_smoothed_drawdown(self) -> float:
-        """Calculate smoothed drawdown using moving average."""
-        if len(self.equity_history) < self.smoothing_window:
-            return self.current_drawdown
-        
-        recent_drawdowns = [
-            record['drawdown'] for record in self.equity_history[-self.smoothing_window:]
-        ]
-        return np.mean(recent_drawdowns)
-    
-    def is_drawdown_exceeded(self) -> bool:
+    def update_bias(self, 
+                   current_price: float, 
+                   bias_indicator: Optional[str] = None) -> None:
         """
-        Check if drawdown threshold has been exceeded.
-        
-        Returns:
-            True if drawdown exceeds threshold and protection is active
-        """
-        return self.protection_active
-    
-    def should_disable_trading(self) -> bool:
-        """
-        Check if trading should be disabled.
-        
-        Returns:
-            True if trading should be disabled due to equity protection
-        """
-        return self.trading_disabled
-    
-    def should_flatten_positions(self) -> bool:
-        """
-        Check if all positions should be flattened immediately.
-        
-        Returns:
-            True if positions should be flattened due to protection trigger
-        """
-        return self.protection_active and self.trading_disabled
-    
-    def update_bias(self, new_bias: str, timestamp: Optional[datetime] = None) -> Dict[str, Any]:
-        """
-        Update market bias and check for bias flip recovery.
+        Update market bias and check for bias flip.
         
         Args:
-            new_bias: New market bias ("bull", "bear", "neutral")
-            timestamp: Optional timestamp
-            
-        Returns:
-            Dictionary with bias update results
+            current_price (float): Current market price
+            bias_indicator (str, optional): External bias indicator ('bull'/'bear')
         """
-        if timestamp is None:
-            timestamp = datetime.now()
-        
-        # Validate bias value
-        valid_biases = {"bull", "bear", "neutral"}
-        if new_bias not in valid_biases:
-            raise EquityProtectionError(f"Invalid bias: {new_bias}. Must be one of {valid_biases}")
-        
-        previous_bias = self.current_bias
-        previous_trading_disabled = self.trading_disabled
-        
-        # Update bias
-        self.current_bias = new_bias
-        
-        # Store bias history
-        bias_record = {
-            'timestamp': timestamp,
-            'bias': new_bias,
-            'previous_bias': previous_bias,
-            'is_flip': previous_bias is not None and previous_bias != new_bias
-        }
-        
-        self.bias_history.append(bias_record)
+        if bias_indicator:
+            # Use external bias indicator
+            new_bias = BiasDirection.BULL if bias_indicator.lower() == 'bull' else BiasDirection.BEAR
+        else:
+            # Calculate bias from price change
+            if self.last_bias_price is None:
+                self.last_bias_price = current_price
+                return
+            
+            price_change = (current_price - self.last_bias_price) / self.last_bias_price
+            
+            if price_change > self.bias_flip_threshold:
+                new_bias = BiasDirection.BULL
+            elif price_change < -self.bias_flip_threshold:
+                new_bias = BiasDirection.BEAR
+            else:
+                new_bias = self.bias_direction  # No change
         
         # Check for bias flip
-        if bias_record['is_flip']:
-            self.last_bias_flip_time = timestamp
-            self.stats['bias_flips'] += 1
-            
-            if self.debug:
-                print(f"Bias flip detected: {previous_bias} -> {new_bias}")
-            
-            # Re-enable trading if protection allows it
-            if self.enable_on_bias_flip and self.trading_disabled:
-                self._check_bias_flip_recovery(timestamp)
+        if new_bias != self.bias_direction and self.bias_direction != BiasDirection.NEUTRAL:
+            self._handle_bias_flip(new_bias)
         
-        return {
-            'timestamp': timestamp,
-            'bias': new_bias,
-            'previous_bias': previous_bias,
-            'is_flip': bias_record['is_flip'],
-            'trading_enabled': not self.trading_disabled,
-            'trading_status_changed': previous_trading_disabled != self.trading_disabled
-        }
+        self.bias_direction = new_bias
+        self.last_bias_price = current_price
     
-    def _check_bias_flip_recovery(self, timestamp: datetime) -> None:
-        """Check if bias flip should trigger recovery from protection."""
-        if not self.protection_active:
-            return
+    def is_drawdown_exceeded(self) -> bool:
+        """Check if drawdown threshold is exceeded."""
+        if self.peak_equity <= 0:
+            return False
         
-        # Re-enable trading on bias flip
-        if self.enable_on_bias_flip:
-            self.trading_disabled = False
-            
-            # Calculate protection duration
-            if self.protection_triggered_at:
-                duration = (timestamp - self.protection_triggered_at).total_seconds()
-                if duration > self.stats['max_protection_duration']:
-                    self.stats['max_protection_duration'] = duration
-            
-            if self.debug:
-                print(f"Trading re-enabled due to bias flip to {self.current_bias}")
+        current_drawdown_pct = self.current_drawdown / self.peak_equity
+        return current_drawdown_pct >= self.drawdown_threshold
     
-    def reset_on_bias_flip(self, new_bias: str, timestamp: Optional[datetime] = None) -> Dict[str, Any]:
+    def should_disable_trading(self) -> bool:
+        """Check if trading should be disabled."""
+        return self.trading_state in [TradingState.SUSPENDED, TradingState.DISABLED]
+    
+    def should_allow_longs(self) -> bool:
+        """Check if long positions should be allowed."""
+        if self.should_disable_trading():
+            return False
+        return self.bias_direction in [BiasDirection.BULL, BiasDirection.NEUTRAL]
+    
+    def should_allow_shorts(self) -> bool:
+        """Check if short positions should be allowed."""
+        if self.should_disable_trading():
+            return False
+        return self.bias_direction in [BiasDirection.BEAR, BiasDirection.NEUTRAL]
+    
+    def force_suspend_trading(self) -> None:
+        """Force suspend trading regardless of conditions."""
+        self.trading_state = TradingState.SUSPENDED
+    
+    def force_resume_trading(self) -> None:
+        """Force resume trading regardless of conditions."""
+        self.trading_state = TradingState.ACTIVE
+    
+    def reset_on_bias_flip(self, new_bias: BiasDirection) -> None:
+        """Reset trading state on bias flip."""
+        if self.enable_bias_reset and self.trading_state == TradingState.SUSPENDED:
+            self.trading_state = TradingState.ACTIVE
+            self.bias_flip_count += 1
+            self.last_bias_flip_time = len(self.timestamps) - 1
+    
+    def get_equity_stats(self) -> EquityStats:
+        """Get comprehensive equity statistics."""
+        return EquityStats(
+            current_equity=self.current_equity,
+            peak_equity=self.peak_equity,
+            current_drawdown=self.current_drawdown,
+            max_drawdown=self.max_drawdown,
+            drawdown_percentage=self.current_drawdown / self.peak_equity if self.peak_equity > 0 else 0.0,
+            trading_state=self.trading_state,
+            bias_direction=self.bias_direction,
+            equity_curve=self.equity_curve.copy(),
+            drawdown_curve=self.drawdown_curve.copy(),
+            timestamps=self.timestamps.copy()
+        )
+    
+    def _check_protection_thresholds(self) -> bool:
+        """Check and update protection thresholds.
+        
+        Returns:
+            bool: True if protection was triggered this update
         """
-        Reset protection state on bias flip (legacy method name).
+        protection_triggered = False
+        
+        if self.is_drawdown_exceeded():
+            if self.trading_state == TradingState.ACTIVE:
+                self.trading_state = TradingState.SUSPENDED
+                self.suspended_periods = 0
+                protection_triggered = True
+        else:
+            # Resume trading if drawdown is below threshold and no other constraints
+            if self.trading_state == TradingState.SUSPENDED:
+                self.trading_state = TradingState.ACTIVE
+        
+        return protection_triggered
+    
+    def _handle_bias_flip(self, new_bias: BiasDirection) -> None:
+        """Handle bias flip event."""
+        if self.enable_bias_reset:
+            self.reset_on_bias_flip(new_bias)
+    
+    def _update_statistics(self) -> None:
+        """Update internal statistics."""
+        if self.trading_state == TradingState.SUSPENDED:
+            self.suspended_periods += 1
+        
+        if len(self.drawdown_curve) > 1:
+            if self.drawdown_curve[-1] > self.drawdown_curve[-2]:
+                self.drawdown_periods += 1
+            elif self.drawdown_curve[-1] < self.drawdown_curve[-2]:
+                self.recovery_periods += 1
+    
+    def plot_equity_curve(self, 
+                         title: str = "Equity Curve with Protection",
+                         figsize: Tuple[int, int] = (12, 8),
+                         save_path: Optional[str] = None) -> None:
+        """
+        Plot equity curve with protection indicators.
         
         Args:
-            new_bias: New market bias
-            timestamp: Optional timestamp
-            
-        Returns:
-            Dictionary with reset results
-        """
-        return self.update_bias(new_bias, timestamp)
-    
-    def force_reset(self, timestamp: Optional[datetime] = None) -> Dict[str, Any]:
-        """
-        Force reset of protection state (emergency override).
-        
-        Args:
-            timestamp: Optional timestamp
-            
-        Returns:
-            Dictionary with reset results
-        """
-        if timestamp is None:
-            timestamp = datetime.now()
-        
-        previous_state = {
-            'protection_active': self.protection_active,
-            'trading_disabled': self.trading_disabled
-        }
-        
-        # Reset protection state
-        self.protection_active = False
-        self.trading_disabled = False
-        
-        if self.debug:
-            print(f"Equity protection force reset at {timestamp}")
-        
-        return {
-            'timestamp': timestamp,
-            'reset_type': 'force',
-            'previous_state': previous_state,
-            'new_state': {
-                'protection_active': self.protection_active,
-                'trading_disabled': self.trading_disabled
-            }
-        }
-    
-    def get_equity_stats(self) -> Dict[str, Any]:
-        """
-        Get comprehensive equity protection statistics.
-        
-        Returns:
-            Dictionary with detailed statistics
-        """
-        stats = {
-            # Current State
-            'current_equity': self.current_equity,
-            'peak_equity': self.peak_equity,
-            'current_drawdown': self.current_drawdown,
-            'max_drawdown': self.max_drawdown,
-            
-            # Protection State
-            'protection_active': self.protection_active,
-            'trading_disabled': self.trading_disabled,
-            'drawdown_threshold': self.drawdown_threshold,
-            
-            # Trigger Information
-            'protection_triggered_at': self.protection_triggered_at,
-            'protection_triggered_equity': self.protection_triggered_equity,
-            'protection_triggered_drawdown': self.protection_triggered_drawdown,
-            
-            # Bias Information
-            'current_bias': self.current_bias,
-            'last_bias_flip_time': self.last_bias_flip_time,
-            
-            # Historical Statistics
-            'total_updates': self.stats['total_updates'],
-            'protection_triggers': self.stats['protection_triggers'],
-            'bias_flips': self.stats['bias_flips'],
-            'max_protection_duration': self.stats['max_protection_duration'],
-            
-            # Data Points
-            'equity_history_length': len(self.equity_history),
-            'bias_history_length': len(self.bias_history),
-            
-            # Configuration
-            'smoothing_window': self.smoothing_window,
-            'min_equity_history': self.min_equity_history,
-            'enable_on_bias_flip': self.enable_on_bias_flip
-        }
-        
-        return stats
-    
-    def get_equity_curve(self) -> pd.DataFrame:
-        """
-        Get equity curve as pandas DataFrame.
-        
-        Returns:
-            DataFrame with equity curve data
-        """
-        if not self.equity_history:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(self.equity_history)
-        df.set_index('timestamp', inplace=True)
-        return df
-    
-    def get_drawdown_curve(self) -> pd.DataFrame:
-        """
-        Get drawdown curve as pandas DataFrame.
-        
-        Returns:
-            DataFrame with drawdown curve data
-        """
-        df = self.get_equity_curve()
-        if df.empty:
-            return pd.DataFrame()
-        
-        # Calculate additional drawdown metrics
-        df['drawdown_pct'] = df['drawdown'] * 100
-        df['drawdown_amount'] = df['peak_equity'] - df['equity']
-        df['recovery_factor'] = df['equity'] / df['peak_equity']
-        
-        return df[['drawdown', 'drawdown_pct', 'drawdown_amount', 'recovery_factor', 'protection_active']]
-    
-    def plot_equity_curve(self, figsize: Tuple[int, int] = (12, 8)) -> Optional[plt.Figure]:
-        """
-        Plot equity curve with protection levels.
-        
-        Args:
-            figsize: Figure size tuple
-            
-        Returns:
-            Matplotlib figure if available, None otherwise
+            title (str): Plot title
+            figsize (tuple): Figure size
+            save_path (str, optional): Path to save plot
         """
         if not HAS_MATPLOTLIB:
-            warnings.warn("Matplotlib not available for plotting")
-            return None
+            warnings.warn("Matplotlib not available - cannot plot equity curve")
+            return
         
-        if not self.equity_history:
-            warnings.warn("No equity history available for plotting")
-            return None
-        
-        df = self.get_equity_curve()
+        if len(self.equity_curve) < 2:
+            warnings.warn("Insufficient data for plotting")
+            return
         
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=True)
         
         # Plot equity curve
-        ax1.plot(df.index, df['equity'], label='Equity', linewidth=2, color='blue')
-        ax1.plot(df.index, df['peak_equity'], label='Peak Equity', linewidth=1, color='green', alpha=0.7)
+        ax1.plot(self.equity_curve, label='Equity', linewidth=2)
+        ax1.axhline(y=self.peak_equity, color='g', linestyle='--', alpha=0.7, label='Peak Equity')
         
-        # Highlight protection periods
-        protection_periods = df[df['protection_active']]
-        if not protection_periods.empty:
-            ax1.scatter(protection_periods.index, protection_periods['equity'], 
-                       color='red', s=20, label='Protection Active', alpha=0.8)
+        # Mark suspended periods
+        suspended_mask = np.array([self.trading_state == TradingState.SUSPENDED] * len(self.equity_curve))
+        if np.any(suspended_mask):
+            ax1.fill_between(range(len(self.equity_curve)), 
+                           min(self.equity_curve), max(self.equity_curve),
+                           where=suspended_mask, alpha=0.3, color='red', label='Trading Suspended')
         
-        ax1.set_title('Equity Curve with Protection Levels')
-        ax1.set_ylabel('Equity ($)')
+        ax1.set_title(title)
+        ax1.set_ylabel('Equity')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        # Plot drawdown
-        ax2.fill_between(df.index, df['drawdown'] * 100, 0, 
-                        alpha=0.3, color='red', label='Drawdown')
-        ax2.axhline(y=self.drawdown_threshold * 100, color='red', linestyle='--', 
-                   label=f'Protection Threshold ({self.drawdown_threshold:.1%})')
+        # Plot drawdown curve
+        drawdown_pct = np.array(self.drawdown_curve) * 100
+        ax2.fill_between(range(len(drawdown_pct)), 0, drawdown_pct, 
+                        alpha=0.6, color='red', label='Drawdown %')
+        ax2.axhline(y=self.drawdown_threshold * 100, color='orange', 
+                   linestyle='--', linewidth=2, label=f'Protection Threshold ({self.drawdown_threshold*100:.1f}%)')
         
-        ax2.set_title('Drawdown with Protection Threshold')
-        ax2.set_ylabel('Drawdown (%)')
-        ax2.set_xlabel('Time')
+        ax2.set_xlabel('Time Period')
+        ax2.set_ylabel('Drawdown %')
         ax2.legend()
         ax2.grid(True, alpha=0.3)
-        ax2.invert_yaxis()  # Drawdown should go down
+        ax2.invert_yaxis()  # Invert y-axis so drawdown goes down
         
         plt.tight_layout()
-        return fig
-
-
-class EquityProtectionAnalyzer:
-    """
-    Analyzer for equity protection performance and effectiveness.
-    
-    This class provides comprehensive analysis of equity protection system
-    performance, including statistics on protection triggers, recovery times,
-    and overall effectiveness in preventing catastrophic drawdowns.
-    """
-    
-    def __init__(self, equity_protection: EquityProtection):
-        """
-        Initialize analyzer with equity protection instance.
         
-        Args:
-            equity_protection: EquityProtection instance to analyze
-        """
-        self.protection = equity_protection
-    
-    def analyze_protection_effectiveness(self) -> Dict[str, Any]:
-        """
-        Analyze effectiveness of equity protection system.
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
         
-        Returns:
-            Dictionary with effectiveness analysis
-        """
-        df = self.protection.get_equity_curve()
-        if df.empty:
-            return {'error': 'No equity data available'}
-        
-        # Calculate protection effectiveness metrics
-        analysis = {
-            'protection_summary': {
-                'total_triggers': self.protection.stats['protection_triggers'],
-                'max_drawdown_observed': self.protection.max_drawdown,
-                'max_drawdown_prevented': max(0, self.protection.max_drawdown - self.protection.drawdown_threshold),
-                'protection_threshold': self.protection.drawdown_threshold,
-                'effectiveness_ratio': min(1.0, self.protection.drawdown_threshold / max(self.protection.max_drawdown, 0.001))
-            },
-            
-            'recovery_analysis': self._analyze_recovery_periods(df),
-            'drawdown_analysis': self._analyze_drawdown_patterns(df),
-            'bias_flip_analysis': self._analyze_bias_flip_effectiveness()
-        }
-        
-        return analysis
-    
-    def _analyze_recovery_periods(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze recovery periods from protection triggers."""
-        if df.empty or 'protection_active' not in df.columns:
-            return {'error': 'No protection data available'}
-        
-        # Find protection periods
-        protection_changes = df['protection_active'].diff()
-        protection_starts = df[protection_changes == 1].index
-        protection_ends = df[protection_changes == -1].index
-        
-        recovery_times = []
-        for start in protection_starts:
-            # Find corresponding end
-            ends_after_start = protection_ends[protection_ends > start]
-            if len(ends_after_start) > 0:
-                end = ends_after_start[0]
-                duration = (end - start).total_seconds() / 3600  # Hours
-                recovery_times.append(duration)
-        
-        if recovery_times:
-            return {
-                'avg_recovery_time_hours': np.mean(recovery_times),
-                'max_recovery_time_hours': np.max(recovery_times),
-                'min_recovery_time_hours': np.min(recovery_times),
-                'total_recovery_periods': len(recovery_times)
-            }
-        else:
-            return {'no_recovery_periods': True}
-    
-    def _analyze_drawdown_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze drawdown patterns and protection effectiveness."""
-        if df.empty:
-            return {'error': 'No data available'}
-        
-        # Calculate drawdown statistics
-        drawdowns = df['drawdown'].values
-        
-        # Find consecutive drawdown periods
-        drawdown_periods = []
-        current_period = []
-        
-        for i, dd in enumerate(drawdowns):
-            if dd > 0:
-                current_period.append(dd)
-            else:
-                if current_period:
-                    drawdown_periods.append(current_period)
-                    current_period = []
-        
-        if current_period:
-            drawdown_periods.append(current_period)
-        
-        # Analyze drawdown periods
-        if drawdown_periods:
-            max_drawdowns = [max(period) for period in drawdown_periods]
-            period_lengths = [len(period) for period in drawdown_periods]
-            
-            return {
-                'total_drawdown_periods': len(drawdown_periods),
-                'avg_max_drawdown': np.mean(max_drawdowns),
-                'avg_drawdown_period_length': np.mean(period_lengths),
-                'drawdowns_exceeding_threshold': sum(1 for dd in max_drawdowns if dd >= self.protection.drawdown_threshold),
-                'protection_effectiveness_pct': (1 - sum(1 for dd in max_drawdowns if dd >= self.protection.drawdown_threshold) / len(max_drawdowns)) * 100
-            }
-        else:
-            return {'no_drawdown_periods': True}
-    
-    def _analyze_bias_flip_effectiveness(self) -> Dict[str, Any]:
-        """Analyze effectiveness of bias flip recovery mechanism."""
-        if not self.protection.bias_history:
-            return {'error': 'No bias data available'}
-        
-        bias_flips = [record for record in self.protection.bias_history if record['is_flip']]
-        
-        if not bias_flips:
-            return {'no_bias_flips': True}
-        
-        # Calculate recovery success rate
-        successful_recoveries = 0
-        total_recoveries = 0
-        
-        for flip in bias_flips:
-            # Check if trading was disabled at time of flip
-            flip_time = flip['timestamp']
-            
-            # Find equity state at time of flip
-            equity_at_flip = None
-            for record in self.protection.equity_history:
-                if record['timestamp'] >= flip_time:
-                    equity_at_flip = record
-                    break
-            
-            if equity_at_flip and equity_at_flip['trading_disabled']:
-                total_recoveries += 1
-                # Check if trading was subsequently enabled
-                # This is a simplified check - in practice, you'd want more sophisticated analysis
-                if self.protection.enable_on_bias_flip:
-                    successful_recoveries += 1
-        
-        recovery_success_rate = (successful_recoveries / total_recoveries * 100) if total_recoveries > 0 else 0
-        
-        return {
-            'total_bias_flips': len(bias_flips),
-            'recovery_opportunities': total_recoveries,
-            'successful_recoveries': successful_recoveries,
-            'recovery_success_rate_pct': recovery_success_rate
-        }
+        plt.show()
     
     def generate_protection_report(self) -> str:
-        """
-        Generate comprehensive protection effectiveness report.
-        
-        Returns:
-            Formatted string report
-        """
-        stats = self.protection.get_equity_stats()
-        analysis = self.analyze_protection_effectiveness()
+        """Generate comprehensive protection report."""
+        stats = self.get_equity_stats()
         
         report = f"""
-Equity Protection System Report
-==============================
+EQUITY PROTECTION REPORT
+========================
+Current State: {stats.trading_state.value.upper()}
+Market Bias: {stats.bias_direction.value.upper()}
 
-Current Status:
-- Equity: ${stats['current_equity']:,.2f}
-- Peak Equity: ${stats['peak_equity']:,.2f}
-- Current Drawdown: {stats['current_drawdown']:.1%}
-- Max Drawdown: {stats['max_drawdown']:.1%}
-- Protection Active: {stats['protection_active']}
-- Trading Disabled: {stats['trading_disabled']}
+Equity Metrics:
+- Current Equity: ${stats.current_equity:,.2f}
+- Peak Equity: ${stats.peak_equity:,.2f}
+- Current Drawdown: ${stats.current_drawdown:,.2f} ({stats.drawdown_percentage:.2%})
+- Maximum Drawdown: {stats.max_drawdown:.2%}
 
-Protection Configuration:
-- Drawdown Threshold: {stats['drawdown_threshold']:.1%}
-- Bias Flip Recovery: {stats['enable_on_bias_flip']}
-- Smoothing Window: {stats['smoothing_window']} periods
-- Min History: {stats['min_equity_history']} updates
+Protection Settings:
+- Drawdown Threshold: {self.drawdown_threshold:.2%}
+- Bias Flip Threshold: {self.bias_flip_threshold:.2%}
+- Equity Smoothing: {self.equity_smoothing} periods
+- Bias Reset Enabled: {self.enable_bias_reset}
 
-Protection Performance:
-- Total Triggers: {stats['protection_triggers']}
-- Total Updates: {stats['total_updates']}
-- Bias Flips: {stats['bias_flips']}
-- Max Protection Duration: {stats['max_protection_duration']:.1f} seconds
+Statistics:
+- Total Periods: {len(self.equity_curve)}
+- Suspended Periods: {self.suspended_periods}
+- Drawdown Periods: {self.drawdown_periods}
+- Recovery Periods: {self.recovery_periods}
+- Bias Flips: {self.bias_flip_count}
 
-"""
-        
-        if 'protection_summary' in analysis:
-            ps = analysis['protection_summary']
-            report += f"""Protection Effectiveness:
-- Effectiveness Ratio: {ps['effectiveness_ratio']:.2f}
-- Max Drawdown Prevented: {ps['max_drawdown_prevented']:.1%}
-- Protection Success: {'Yes' if ps['max_drawdown_prevented'] > 0 else 'No'}
-
-"""
-        
-        if 'recovery_analysis' in analysis and 'avg_recovery_time_hours' in analysis['recovery_analysis']:
-            ra = analysis['recovery_analysis']
-            report += f"""Recovery Analysis:
-- Average Recovery Time: {ra['avg_recovery_time_hours']:.1f} hours
-- Max Recovery Time: {ra['max_recovery_time_hours']:.1f} hours
-- Total Recovery Periods: {ra['total_recovery_periods']}
-
-"""
-        
-        if 'bias_flip_analysis' in analysis and 'total_bias_flips' in analysis['bias_flip_analysis']:
-            bfa = analysis['bias_flip_analysis']
-            report += f"""Bias Flip Analysis:
-- Total Bias Flips: {bfa['total_bias_flips']}
-- Recovery Success Rate: {bfa.get('recovery_success_rate_pct', 0):.1f}%
-- Recovery Opportunities: {bfa.get('recovery_opportunities', 0)}
-
+Trading Permissions:
+- Allow Longs: {self.should_allow_longs()}
+- Allow Shorts: {self.should_allow_shorts()}
+- Trading Disabled: {self.should_disable_trading()}
 """
         
         return report.strip()
 
 
-class ProtectedStrategy(bt.Strategy):
-    """
-    Backtrader strategy wrapper with integrated equity protection.
+class BacktraderIntegration:
+    """Integration utilities for Backtrader."""
     
-    This class extends Backtrader's strategy framework to include real-time
-    equity protection monitoring and automatic position management based on
-    drawdown thresholds.
-    """
-    
-    params = (
-        ('equity_protection', None),  # EquityProtection instance
-        ('flatten_on_trigger', True),  # Flatten positions on protection trigger
-        ('base_strategy_class', None),  # Base strategy class to wrap
-        ('base_strategy_params', {}),  # Parameters for base strategy
-    )
-    
-    def __init__(self):
-        """Initialize protected strategy."""
-        super().__init__()
+    @staticmethod
+    def create_equity_protection_analyzer(protection: EquityProtection):
+        """Create Backtrader analyzer for equity protection."""
         
-        # Initialize equity protection
-        if self.params.equity_protection is None:
-            self.equity_protection = EquityProtection()
-        else:
-            self.equity_protection = self.params.equity_protection
+        class EquityProtectionAnalyzer:
+            def __init__(self):
+                self.protection = protection
+            
+            def next(self):
+                # Update equity from broker
+                current_equity = self.strategy.broker.getvalue()
+                self.protection.update_equity(current_equity)
+            
+            def should_allow_trade(self, trade_type: str) -> bool:
+                if trade_type.lower() == 'long':
+                    return self.protection.should_allow_longs()
+                elif trade_type.lower() == 'short':
+                    return self.protection.should_allow_shorts()
+                return not self.protection.should_disable_trading()
         
-        # Initialize base strategy if provided
-        if self.params.base_strategy_class is not None:
-            self.base_strategy = self.params.base_strategy_class(**self.params.base_strategy_params)
-        else:
-            self.base_strategy = None
-        
-        # Track protection state
-        self.last_protection_check = None
-        self.positions_flattened = False
-    
-    def next(self):
-        """Process next bar with equity protection checks."""
-        # Update equity protection
-        current_equity = self.broker.getvalue()
-        protection_update = self.equity_protection.update_equity(current_equity)
-        
-        # Check if protection was just triggered
-        if protection_update['protection_triggered']:
-            self._handle_protection_trigger()
-        
-        # Execute base strategy if trading is enabled
-        if not self.equity_protection.should_disable_trading():
-            if self.base_strategy and hasattr(self.base_strategy, 'next'):
-                self.base_strategy.next()
-        
-        # Reset position flattening flag if protection is no longer active
-        if not self.equity_protection.protection_active:
-            self.positions_flattened = False
-    
-    def _handle_protection_trigger(self):
-        """Handle equity protection trigger."""
-        if self.params.flatten_on_trigger and not self.positions_flattened:
-            # Flatten all positions
-            if self.position:
-                self.close()
-                self.positions_flattened = True
-                
-                print(f"EQUITY PROTECTION: Flattened all positions due to {self.equity_protection.current_drawdown:.1%} drawdown")
-    
-    def notify_order(self, order):
-        """Override order notifications to include protection status."""
-        if hasattr(self.base_strategy, 'notify_order'):
-            self.base_strategy.notify_order(order)
-    
-    def notify_trade(self, trade):
-        """Override trade notifications to include protection status."""
-        if hasattr(self.base_strategy, 'notify_trade'):
-            self.base_strategy.notify_trade(trade)
+        return EquityProtectionAnalyzer
 
 
-def create_equity_protection_config(
-    drawdown_threshold: float = 0.25,
-    enable_on_bias_flip: bool = True,
-    smoothing_window: int = 5,
-    min_equity_history: int = 10
-) -> Dict[str, Any]:
+def create_equity_protection_column(df: pd.DataFrame,
+                                  equity_column: str = 'equity',
+                                  drawdown_threshold: float = 0.25) -> pd.Series:
     """
-    Create equity protection configuration dictionary.
+    Create equity protection signal column for DataFrame.
     
     Args:
-        drawdown_threshold: Maximum drawdown before protection triggers
-        enable_on_bias_flip: Whether to re-enable trading on bias flip
-        smoothing_window: Window for equity curve smoothing
-        min_equity_history: Minimum history before protection activates
+        df (pd.DataFrame): DataFrame with equity column
+        equity_column (str): Name of equity column
+        drawdown_threshold (float): Drawdown threshold
         
     Returns:
-        Configuration dictionary for equity protection
+        pd.Series: Boolean series indicating when trading should be disabled
     """
-    return {
-        'equity_protection': {
-            'enabled': True,
-            'drawdown_threshold': drawdown_threshold,
-            'enable_on_bias_flip': enable_on_bias_flip,
-            'smoothing_window': smoothing_window,
-            'min_equity_history': min_equity_history,
-            'flatten_positions_on_trigger': True,
-            'disable_new_entries': True,
-            'recovery_mechanism': 'bias_flip' if enable_on_bias_flip else 'manual'
-        },
-        'risk_management': {
-            'max_drawdown_threshold': drawdown_threshold,
-            'emergency_stop_enabled': True,
-            'position_flattening_enabled': True,
-            'new_entry_control': True
-        }
-    }
+    if equity_column not in df.columns:
+        return pd.Series(False, index=df.index)
+    
+    protection = EquityProtection(drawdown_threshold=drawdown_threshold)
+    disable_trading = []
+    
+    for equity in df[equity_column]:
+        if not np.isnan(equity):
+            protection.update_equity(equity)
+        disable_trading.append(protection.should_disable_trading())
+    
+    return pd.Series(disable_trading, index=df.index)
 
 
-def integrate_equity_protection_with_strategy(
-    strategy_config: Dict[str, Any],
-    equity_protection_config: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+def simulate_equity_protection(equity_curve: List[float],
+                             drawdown_threshold: float = 0.25,
+                             plot_results: bool = True) -> EquityProtection:
     """
-    Integrate equity protection configuration with existing strategy configuration.
+    Simulate equity protection on historical equity curve.
     
     Args:
-        strategy_config: Existing strategy configuration
-        equity_protection_config: Optional equity protection configuration
+        equity_curve (List[float]): Historical equity values
+        drawdown_threshold (float): Drawdown threshold
+        plot_results (bool): Whether to plot results
         
     Returns:
-        Updated strategy configuration with equity protection
+        EquityProtection: Configured protection instance
     """
-    if equity_protection_config is None:
-        equity_protection_config = create_equity_protection_config()
+    protection = EquityProtection(drawdown_threshold=drawdown_threshold)
     
-    # Create a copy of the strategy config
-    integrated_config = strategy_config.copy()
+    for i, equity in enumerate(equity_curve):
+        protection.update_equity(equity, f"Period_{i}")
     
-    # Add equity protection configuration
-    integrated_config.update(equity_protection_config)
+    if plot_results:
+        protection.plot_equity_curve(title="Equity Protection Simulation")
     
-    # Add equity protection rules to logic if not present
-    if 'logic' not in integrated_config:
-        integrated_config['logic'] = {}
-    
-    # Add protection checks to entry conditions
-    entry_protection_rule = "not equity_protection_active"
-    
-    if 'entry_long' in integrated_config['logic']:
-        if entry_protection_rule not in integrated_config['logic']['entry_long']:
-            integrated_config['logic']['entry_long'].append(entry_protection_rule)
-    
-    if 'entry_short' in integrated_config['logic']:
-        if entry_protection_rule not in integrated_config['logic']['entry_short']:
-            integrated_config['logic']['entry_short'].append(entry_protection_rule)
-    
-    # Add protection-based exit rules
-    protection_exit_rule = "equity_protection_triggered"
-    
-    if 'exit_long' in integrated_config['logic']:
-        if protection_exit_rule not in integrated_config['logic']['exit_long']:
-            integrated_config['logic']['exit_long'].append(protection_exit_rule)
-    
-    if 'exit_short' in integrated_config['logic']:
-        if protection_exit_rule not in integrated_config['logic']['exit_short']:
-            integrated_config['logic']['exit_short'].append(protection_exit_rule)
-    
-    return integrated_config
+    return protection
 
 
-# Example usage and integration functions
-def create_protected_backtest_config() -> Dict[str, Any]:
-    """
-    Create a sample configuration with equity protection for backtesting.
+# Example usage and testing
+def example_usage():
+    """Example usage of equity protection system."""
+    print("Example Equity Protection Usage:")
+    print("=" * 40)
     
-    Returns:
-        Complete configuration with equity protection
-    """
-    base_config = {
-        'name': 'Protected Trading Strategy',
-        'symbol': 'BTC/USD',
-        'timeframes': {'entry': '1h'},
-        'indicators': [
-            {
-                'id': 'protection_monitor',
-                'type': 'EquityProtection',
-                'timeframe': '1h',
-                'drawdown_threshold': 0.25,
-                'enable_on_bias_flip': True
-            }
-        ],
-        'logic': {
-            'entry_long': ['rsi < 30', 'not equity_protection_active'],
-            'exit_long': ['rsi > 70', 'equity_protection_triggered'],
-            'entry_short': ['rsi > 70', 'not equity_protection_active'],
-            'exit_short': ['rsi < 30', 'equity_protection_triggered']
-        },
-        'backtest': {
-            'from': '2024-01-01',
-            'to': '2024-12-31',
-            'initial_cash': 10000,
-            'commission': 0.001
-        }
-    }
+    # Create protection instance
+    protection = EquityProtection(drawdown_threshold=0.25)
     
-    # Add equity protection
-    equity_protection_config = create_equity_protection_config()
-    return integrate_equity_protection_with_strategy(base_config, equity_protection_config)
+    # Simulate equity curve
+    np.random.seed(42)
+    equity_values = [100000]  # Starting equity
+    
+    for i in range(1000):
+        # Simulate returns with occasional large losses
+        if i == 500:  # Simulate large loss
+            return_rate = -0.30
+        else:
+            return_rate = np.random.normal(0.0005, 0.02)  # 0.05% daily return, 2% volatility
+        
+        new_equity = equity_values[-1] * (1 + return_rate)
+        equity_values.append(new_equity)
+        
+        # Update protection
+        protection.update_equity(new_equity, f"Day_{i}")
+    
+    # Generate report
+    print(protection.generate_protection_report())
+    
+    # Plot results
+    protection.plot_equity_curve(title="Example Equity Protection")
+    
+    return protection
 
 
 if __name__ == "__main__":
-    # Example usage
-    print("Equity Protection System Example")
-    print("================================")
-    
-    # Create equity protection instance
-    protection = EquityProtection(drawdown_threshold=0.25, debug=True)
-    
-    # Simulate equity updates
-    equity_values = [10000, 10500, 11000, 9500, 8000, 7500, 7000, 8500, 9000, 9500]
-    
-    for i, equity in enumerate(equity_values):
-        result = protection.update_equity(equity)
-        print(f"Update {i+1}: Equity=${equity}, Drawdown={result['drawdown']:.1%}, "
-              f"Protection={result['protection_active']}")
-        
-        # Simulate bias flip after protection trigger
-        if result['protection_triggered']:
-            print("  -> Simulating bias flip to bull")
-            protection.update_bias("bull")
-    
-    # Print final statistics
-    stats = protection.get_equity_stats()
-    print(f"\nFinal Statistics:")
-    print(f"  Max Drawdown: {stats['max_drawdown']:.1%}")
-    print(f"  Protection Triggers: {stats['protection_triggers']}")
-    print(f"  Trading Disabled: {stats['trading_disabled']}")
-    
-    # Generate report
-    analyzer = EquityProtectionAnalyzer(protection)
-    report = analyzer.generate_protection_report()
-    print(f"\n{report}")
+    example_usage()

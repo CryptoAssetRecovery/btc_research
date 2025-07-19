@@ -49,13 +49,21 @@ class FVG(BaseIndicator):
         """Return default parameters for FVG indicator."""
         return {
             "min_gap_pips": 1.0,    # Minimum gap size in pips/points
+            # New: minimum gap expressed as a fraction of ATR. 0.25 means 1/4 ATR.
+            # Having an ATR-linked threshold lets us tune gap-sensitivity from the
+            # strategy config without touching the indicator logic.
+            "min_gap_atr_mult": 0.25,
             "max_lookback": 500,    # Maximum historical gaps to track
             "vp_bin_edges": None,   # Volume Profile bin edges for confluence analysis
             "vp_bin_centers": None  # Volume Profile bin centers for confluence analysis
         }
 
-    def __init__(self, min_gap_pips: float = 1.0, max_lookback: int = 500, 
-                 vp_bin_edges: np.ndarray = None, vp_bin_centers: np.ndarray = None):
+    def __init__(self, *,
+                 min_gap_pips: float = 1.0,
+                 min_gap_atr_mult: float = 0.25,
+                 max_lookback: int = 500,
+                 vp_bin_edges: np.ndarray | None = None,
+                 vp_bin_centers: np.ndarray | None = None):
         """
         Initialize FVG indicator.
 
@@ -66,9 +74,15 @@ class FVG(BaseIndicator):
             vp_bin_centers (np.ndarray): Volume Profile bin centers for bin tagging. Optional.
         """
         self.min_gap_pips = min_gap_pips
+        if min_gap_atr_mult < 0:
+            raise ValueError("min_gap_atr_mult must be non-negative")
+
         self.max_lookback = max_lookback
         self.vp_bin_edges = vp_bin_edges
         self.vp_bin_centers = vp_bin_centers
+
+        # New parameter
+        self.min_gap_atr_mult = min_gap_atr_mult
 
     def compute(self, df: pd.DataFrame, vp_bin_edges: np.ndarray = None, 
                 vp_bin_centers: np.ndarray = None) -> pd.DataFrame:
@@ -254,12 +268,17 @@ class FVG(BaseIndicator):
             # Calculate dynamic minimum gap size: max(0.5 × ATR, 0.1% of price)
             current_price = candle3["close"]
             atr_val = atr_values[i + 2] if i + 2 < len(atr_values) else np.nan
-            
+
+            # Determine minimum gap size dynamically.
+            #   1. ATR-based threshold  →  min_gap_atr_mult × ATR
+            #   2. Absolute floor      →  min_gap_pips (to avoid zero)
             if np.isnan(atr_val):
-                # Fallback to static value if ATR not available
                 dynamic_min_gap = self.min_gap_pips
             else:
-                dynamic_min_gap = max(0.25 * atr_val, 0.0005 * current_price)   # 0.25 ATR or 5 bp
+                dynamic_min_gap = max(
+                    self.min_gap_atr_mult * atr_val,
+                    self.min_gap_pips,
+                )
 
             # Check for bullish FVG: low[i+2] > high[i]
             if candle3["low"] > candle1["high"]:

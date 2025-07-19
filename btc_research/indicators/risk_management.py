@@ -138,15 +138,22 @@ class RiskManagement(BaseIndicator):
         current_long_trailing = np.nan
         current_short_trailing = np.nan
         
-        # Required columns for VP-FVG integration
-        required_columns = [
-            'VPFVGSignal_vf_long', 'VPFVGSignal_vf_short',
-            'VPFVGSignal_vf_atr', 'close', 'high', 'low'
-        ]
+        # Required columns for integration - flexible signal detection
+        required_columns = ['close', 'high', 'low']
+        
+        # Detect available signal columns
+        long_signal_cols = [col for col in df.columns if any(x in col.lower() for x in ['vf_long', 'bullish_signal', 'long_signal'])]
+        short_signal_cols = [col for col in df.columns if any(x in col.lower() for x in ['vf_short', 'bearish_signal', 'short_signal'])]
+        atr_signal_cols = [col for col in df.columns if 'vf_atr' in col.lower()]
+        
+        # Use first available signal columns
+        long_signal_col = long_signal_cols[0] if long_signal_cols else None
+        short_signal_col = short_signal_cols[0] if short_signal_cols else None
+        atr_signal_col = atr_signal_cols[0] if atr_signal_cols else None
         
         # Check if required columns exist
         missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
+        if missing_columns or (long_signal_col is None and short_signal_col is None):
             return self._create_empty_result(df.index)
         
         # Process each bar
@@ -160,7 +167,7 @@ class RiskManagement(BaseIndicator):
                 continue
             
             # Check for new long entry
-            if not current_long_position and df.iloc[i]['VPFVGSignal_vf_long']:
+            if not current_long_position and long_signal_col and df.iloc[i][long_signal_col]:
                 current_long_position = True
                 current_long_entry = current_price
                 
@@ -177,7 +184,7 @@ class RiskManagement(BaseIndicator):
                 current_long_trailing = current_long_stop  # Initialize trailing stop
             
             # Check for new short entry
-            if not current_short_position and df.iloc[i]['VPFVGSignal_vf_short']:
+            if not current_short_position and short_signal_col and df.iloc[i][short_signal_col]:
                 current_short_position = True
                 current_short_entry = current_price
                 

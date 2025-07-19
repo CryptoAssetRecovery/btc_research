@@ -182,6 +182,7 @@ class DynamicStrategy(bt.Strategy):
         ("debug", False),  # Enable debug logging
         ("risk_pct", 0.01),  # Risk percentage per trade (1%)
         ("use_position_sizing", True),  # Enable position sizing
+        ("equity_protection", None),  # Equity protection instance
     )
 
     def __init__(self):
@@ -191,6 +192,7 @@ class DynamicStrategy(bt.Strategy):
         self.debug = self.params.debug
         self.risk_pct = self.params.risk_pct
         self.use_position_sizing = self.params.use_position_sizing
+        self.equity_protection = self.params.equity_protection
 
         if self.config is None:
             raise BacktesterError("Strategy requires config parameter")
@@ -312,6 +314,26 @@ class DynamicStrategy(bt.Strategy):
         all trading rules using pandas.eval() for safe expression evaluation.
         """
         try:
+            # Monitor equity protection if enabled
+            if self.equity_protection is not None:
+                current_equity = self.broker.getvalue()
+                protection_update = self.equity_protection.update_equity(current_equity)
+                
+                # Check if protection triggered and flatten positions
+                if protection_update.get('protection_triggered', False):
+                    if self.debug:
+                        print(f"EQUITY PROTECTION TRIGGERED at equity ${current_equity:,.2f}")
+                    if self.position:
+                        self.close()  # Flatten all positions
+                        if self.debug:
+                            print("All positions flattened due to equity protection")
+                
+                # Skip new entries if protection is active
+                if self.equity_protection.should_disable_trading():
+                    if self.debug and self.current_index % 100 == 0:  # Print occasionally
+                        print(f"Trading disabled due to equity protection")
+                    return
+            
             # Get current bar index
             current_time = self.data.datetime.datetime(0)
 
@@ -466,8 +488,16 @@ class Backtester:
         """
         self.config = config
         self.debug = debug
-        self.risk_pct = risk_pct
-        self.use_position_sizing = use_position_sizing
+        
+        # Read risk management settings from config
+        risk_config = self.config.get("risk_management", {})
+        self.risk_pct = risk_config.get("risk_pct", risk_pct)
+        self.use_position_sizing = risk_config.get("use_position_sizing", use_position_sizing)
+        
+        # Store equity protection config for later initialization
+        self.equity_protection_config = self.config.get("equity_protection", {})
+        self.equity_protection = None
+        
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -565,6 +595,24 @@ class Backtester:
             BacktesterError: If backtest execution fails
         """
         try:
+            # Initialize equity protection if configured
+            if self.equity_protection_config.get("enabled", False):
+                try:
+                    from btc_research.core.equity_protection import EquityProtection
+                    self.equity_protection = EquityProtection(
+                        drawdown_threshold=self.equity_protection_config.get("drawdown_threshold", 0.25),
+                        bias_flip_threshold=self.equity_protection_config.get("bias_flip_threshold", 0.10),
+                        equity_smoothing=self.equity_protection_config.get("smoothing_window", 1),
+                        enable_bias_reset=self.equity_protection_config.get("enable_on_bias_flip", True),
+                        initial_equity=cash
+                    )
+                    if self.debug:
+                        print(f"Equity protection initialized with {self.equity_protection.drawdown_threshold:.1%} threshold")
+                except ImportError as e:
+                    if self.debug:
+                        print(f"Warning: Could not initialize equity protection: {e}")
+                    self.equity_protection = None
+            
             # Create Backtrader cerebro engine
             cerebro = bt.Cerebro()
 
@@ -588,7 +636,8 @@ class Backtester:
                 dataframe=df, 
                 debug=self.debug,
                 risk_pct=self.risk_pct,
-                use_position_sizing=self.use_position_sizing
+                use_position_sizing=self.use_position_sizing,
+                equity_protection=self.equity_protection
             )
 
             # Add analyzers for comprehensive statistics

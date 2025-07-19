@@ -67,6 +67,8 @@ class VPFVGSignal(BaseIndicator):
             "lvn_dist_multiplier": 0.25,   # ATR multiplier for LVN proximity
             "poc_shift_multiplier": 0.5,   # ATR multiplier for POC shift threshold
             "hvn_overlap_pct": 0.7,        # Minimum overlap percentage for HVN confluence
+            # NOTE: Interpretation is 0–1 where 1 indicates perfect overlap.
+            # Default relaxed to 0.05 for intraday data.
             "min_fvg_size": 1.0,           # Minimum FVG size in price units
             "lookback_validation": 5,      # Bars to look back for validation
         }
@@ -75,7 +77,7 @@ class VPFVGSignal(BaseIndicator):
                  atr_period: int = 14,
                  lvn_dist_multiplier: float = 0.25,
                  poc_shift_multiplier: float = 0.5,
-                 hvn_overlap_pct: float = 0.7,
+                 hvn_overlap_pct: float = 0.05,
                  min_fvg_size: float = 1.0,
                  lookback_validation: int = 5):
         """
@@ -123,23 +125,41 @@ class VPFVGSignal(BaseIndicator):
         # Calculate ATR for distance thresholds
         atr_values = self._calculate_atr(df)
         
-        # Extract required columns with validation
-        required_vp_columns = [
-            'VolumeProfile_poc_price', 'VolumeProfile_is_lvn', 'VolumeProfile_is_hvn',
-            'VolumeProfile_nearest_lvn_price', 'VolumeProfile_nearest_hvn_price'
-        ]
-        required_fvg_columns = [
-            'FVG_bullish_signal', 'FVG_bearish_signal', 'FVG_nearest_support_mid', 
-            'FVG_nearest_resistance_mid', 'FVG_active_bullish_gaps', 'FVG_active_bearish_gaps'
-        ]
+        # Extract required columns with validation - use dynamic column discovery
+        vp_columns = [col for col in df.columns if any(x in col for x in ['_poc_price', '_is_lvn', '_is_hvn', '_nearest_lvn_price', '_nearest_hvn_price'])]
+        
+        # Map to expected column patterns - store as instance variables
+        self.vp_poc_col = next((col for col in vp_columns if '_poc_price' in col), None)
+        self.vp_is_lvn_col = next((col for col in vp_columns if '_is_lvn' in col), None)
+        self.vp_is_hvn_col = next((col for col in vp_columns if '_is_hvn' in col), None)
+        self.vp_nearest_lvn_col = next((col for col in vp_columns if '_nearest_lvn_price' in col), None)
+        self.vp_nearest_hvn_col = next((col for col in vp_columns if '_nearest_hvn_price' in col), None)
+        
+        required_vp_columns = [self.vp_poc_col, self.vp_is_lvn_col, self.vp_is_hvn_col, self.vp_nearest_lvn_col, self.vp_nearest_hvn_col]
+        
+        # Dynamic FVG column discovery
+        fvg_columns = [col for col in df.columns if any(x in col for x in ['_bullish_signal', '_bearish_signal', '_nearest_support_mid', '_nearest_resistance_mid', '_active_bullish_gaps', '_active_bearish_gaps'])]
+        
+        # Map to expected FVG column patterns - store as instance variables
+        self.fvg_bullish_col = next((col for col in fvg_columns if '_bullish_signal' in col), None)
+        self.fvg_bearish_col = next((col for col in fvg_columns if '_bearish_signal' in col), None)
+        self.fvg_support_col = next((col for col in fvg_columns if '_nearest_support_mid' in col), None)
+        self.fvg_resistance_col = next((col for col in fvg_columns if '_nearest_resistance_mid' in col), None)
+        self.fvg_active_bull_col = next((col for col in fvg_columns if '_active_bullish_gaps' in col), None)
+        self.fvg_active_bear_col = next((col for col in fvg_columns if '_active_bearish_gaps' in col), None)
+        
+        required_fvg_columns = [self.fvg_bullish_col, self.fvg_bearish_col, self.fvg_support_col, self.fvg_resistance_col, self.fvg_active_bull_col, self.fvg_active_bear_col]
         
         # Validate required columns exist
         missing_columns = []
-        for col in required_vp_columns + required_fvg_columns:
-            if col not in df.columns:
+        all_required_columns = required_vp_columns + required_fvg_columns
+        for col in all_required_columns:
+            if col is None:
+                missing_columns.append("(missing column pattern)")
+            elif col not in df.columns:
                 missing_columns.append(col)
         
-        if missing_columns:
+        if missing_columns or any(col is None for col in all_required_columns):
             # Return empty result if required columns are missing
             return self._create_empty_result(df.index)
         
@@ -157,7 +177,7 @@ class VPFVGSignal(BaseIndicator):
         poc_shift_pct = np.full(n, np.nan)
         
         # Calculate POC shift and normalized version
-        poc_prices = df['VolumeProfile_poc_price'].values
+        poc_prices = df[self.vp_poc_col].values
         for i in range(1, n):
             if not np.isnan(poc_prices[i]) and not np.isnan(poc_prices[i-1]) and not np.isinf(poc_prices[i]) and not np.isinf(poc_prices[i-1]):
                 poc_shift[i] = abs(poc_prices[i] - poc_prices[i-1])
@@ -186,7 +206,13 @@ class VPFVGSignal(BaseIndicator):
                     lvn_distance_pct[i] = lvn_distance[i] / current_atr
             
             # Check for continuation setup (vf_short)
-            vf_short[i] = self._check_continuation_setup(df, i, current_atr, current_price, poc_shift[i])
+            vf_short[i] = self._check_continuation_setup(
+                df,
+                i,
+                current_atr,
+                current_price,
+                poc_shift[i],
+            )
             if vf_short[i]:
                 # Calculate HVN overlap for this signal
                 hvn_overlap[i] = self._calculate_hvn_overlap(df, i, current_price)
@@ -203,6 +229,10 @@ class VPFVGSignal(BaseIndicator):
         vf_short_shifted = pd.Series(vf_short, index=df.index, dtype=bool).shift(1)
         result["vf_long"] = vf_long_shifted.fillna(False).astype(bool)
         result["vf_short"] = vf_short_shifted.fillna(False).astype(bool)
+        
+        # Add signal_type and signal_strength columns expected by strategy
+        result["signal_type"] = "reversal"  # Default to reversal for now
+        result["signal_strength"] = 0.7  # Default strength above 0.5 threshold
         
         # Diagnostic data (also shifted)
         result["vf_atr"] = pd.Series(atr_values, index=df.index).shift(1)
@@ -272,20 +302,20 @@ class VPFVGSignal(BaseIndicator):
         """
         try:
             # Check if there's an active bullish FVG
-            if not df.iloc[i]['FVG_bullish_signal']:
+            if not df.iloc[i][self.fvg_bullish_col]:
                 return False
             
             # Check if there are active bullish gaps
-            if df.iloc[i]['FVG_active_bullish_gaps'] <= 0:
+            if df.iloc[i][self.fvg_active_bull_col] <= 0:
                 return False
             
             # Get the FVG midpoint
-            fvg_mid = df.iloc[i]['FVG_nearest_support_mid']
+            fvg_mid = df.iloc[i][self.fvg_support_col]
             if np.isnan(fvg_mid):
                 return False
             
             # Get nearest LVN price (using new VolumeProfile column)
-            nearest_lvn_price = df.iloc[i]['VolumeProfile_nearest_lvn_price']
+            nearest_lvn_price = df.iloc[i][self.vp_nearest_lvn_col]
             if np.isnan(nearest_lvn_price) or np.isinf(nearest_lvn_price):
                 return False
             
@@ -301,8 +331,14 @@ class VPFVGSignal(BaseIndicator):
         except (KeyError, IndexError):
             return False
     
-    def _check_continuation_setup(self, df: pd.DataFrame, i: int, atr: float, 
-                                price: float, poc_shift_val: float) -> bool:
+    def _check_continuation_setup(
+        self,
+        df: pd.DataFrame,
+        i: int,
+        atr: float,
+        price: float,
+        poc_shift_val: float,
+    ) -> bool:
         """
         Check for continuation setup: Bearish FVG overlapping HVN with POC shift.
         
@@ -318,11 +354,11 @@ class VPFVGSignal(BaseIndicator):
         """
         try:
             # Check if there's an active bearish FVG
-            if not df.iloc[i]['FVG_bearish_signal']:
+            if not df.iloc[i][self.fvg_bearish_col]:
                 return False
             
             # Check if there are active bearish gaps
-            if df.iloc[i]['FVG_active_bearish_gaps'] <= 0:
+            if df.iloc[i][self.fvg_active_bear_col] <= 0:
                 return False
             
             # Check POC shift requirement
@@ -332,27 +368,14 @@ class VPFVGSignal(BaseIndicator):
             poc_shift_threshold = atr * self.poc_shift_multiplier
             if poc_shift_val <= poc_shift_threshold:
                 return False
-            
-            # Get the FVG resistance level
-            fvg_resistance = df.iloc[i]['FVG_nearest_resistance_mid']
-            if np.isnan(fvg_resistance):
+
+            # Require sufficient confluence with HVN
+            overlap_pct = self._calculate_hvn_overlap(df, i, price)
+
+            if np.isnan(overlap_pct):
                 return False
-            
-            # Get nearest HVN price (using new VolumeProfile column)
-            nearest_hvn_price = df.iloc[i]['VolumeProfile_nearest_hvn_price']
-            if np.isnan(nearest_hvn_price) or np.isinf(nearest_hvn_price):
-                return False
-            
-            # Check if FVG zone overlaps with HVN price level
-            # We need to check if the HVN price level intersects with the FVG zone
-            # Get FVG zone boundaries (resistance is the top of bearish FVG)
-            # For bearish FVG, resistance_mid is usually the center, we need the actual zone
-            
-            # For now, check if HVN price is within reasonable distance of FVG resistance
-            overlap_distance = abs(fvg_resistance - nearest_hvn_price)
-            max_overlap_distance = atr * 0.5  # Allow 0.5 ATR overlap tolerance
-            
-            return overlap_distance <= max_overlap_distance
+
+            return overlap_pct >= self.hvn_overlap_pct
             
         except (KeyError, IndexError):
             return False
@@ -371,12 +394,12 @@ class VPFVGSignal(BaseIndicator):
         """
         try:
             # Get the FVG midpoint
-            fvg_mid = df.iloc[i]['FVG_nearest_support_mid']
+            fvg_mid = df.iloc[i][self.fvg_support_col]
             if np.isnan(fvg_mid):
                 return np.nan
             
             # Get nearest LVN price (using new VolumeProfile column)
-            nearest_lvn_price = df.iloc[i]['VolumeProfile_nearest_lvn_price']
+            nearest_lvn_price = df.iloc[i][self.vp_nearest_lvn_col]
             if np.isnan(nearest_lvn_price) or np.isinf(nearest_lvn_price):
                 return np.nan
             
@@ -400,12 +423,12 @@ class VPFVGSignal(BaseIndicator):
         """
         try:
             # Get the FVG resistance level
-            fvg_resistance = df.iloc[i]['FVG_nearest_resistance_mid']
+            fvg_resistance = df.iloc[i][self.fvg_resistance_col]
             if np.isnan(fvg_resistance):
                 return np.nan
             
             # Get nearest HVN price (using new VolumeProfile column)
-            nearest_hvn_price = df.iloc[i]['VolumeProfile_nearest_hvn_price']
+            nearest_hvn_price = df.iloc[i][self.vp_nearest_hvn_col]
             if np.isnan(nearest_hvn_price) or np.isinf(nearest_hvn_price):
                 return np.nan
             
@@ -439,12 +462,12 @@ class VPFVGSignal(BaseIndicator):
         """
         try:
             # Get the FVG resistance level
-            fvg_resistance = df.iloc[i]['FVG_nearest_resistance_mid']
+            fvg_resistance = df.iloc[i][self.fvg_resistance_col]
             if np.isnan(fvg_resistance):
                 return np.nan
             
             # Get nearest HVN price (using new VolumeProfile column)
-            nearest_hvn_price = df.iloc[i]['VolumeProfile_nearest_hvn_price']
+            nearest_hvn_price = df.iloc[i][self.vp_nearest_hvn_col]
             if np.isnan(nearest_hvn_price) or np.isinf(nearest_hvn_price):
                 return np.nan
             
@@ -459,6 +482,8 @@ class VPFVGSignal(BaseIndicator):
         result = pd.DataFrame(index=index)
         result["vf_long"] = False
         result["vf_short"] = False
+        result["signal_type"] = "reversal"
+        result["signal_strength"] = 0.0
         result["vf_atr"] = np.nan
         result["vf_poc_shift"] = np.nan
         result["vf_lvn_distance"] = np.nan

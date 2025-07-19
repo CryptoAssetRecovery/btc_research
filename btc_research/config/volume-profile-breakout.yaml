@@ -31,35 +31,28 @@ indicators:
   - id: "FVG_Enhanced"
     type: "FVG"
     timeframe: "15m"
-    depends_on: ["VP_5D"]     # Requires VP for bin-index tagging
-    min_gap_size: 0.001       # Minimum gap size (0.1%)
-    max_gap_age: 50           # Maximum bars to keep FVG active
-    volume_threshold: 1.2     # Volume confirmation threshold
-    atr_period: 14            # ATR period for gap sizing
-    atr_multiplier: 1.5       # ATR multiplier for significant gaps
-    tag_vp_bins: true         # Enable VP bin-index tagging
-    hvn_threshold: 0.02       # HVN classification threshold (2%)
-    lvn_threshold: 0.005      # LVN classification threshold (0.5%)
+    min_gap_pips: 0.001       # Minimum gap size (0.1%)
+    min_gap_atr_mult: 0.25    # ATR multiplier for dynamic gap sizing
+    max_lookback: 50          # Maximum gaps to track
   
   # VP-FVG Confluence Signal Generator
   - id: "VPFVGSignal"
     type: "VPFVGSignal"
     timeframe: "15m"
-    depends_on: ["VP_5D", "FVG_Enhanced"]  # Requires both VP and FVG
-    hvn_overlap_threshold: 0.3    # Minimum overlap for HVN confluence
-    lvn_proximity_threshold: 0.5  # Proximity threshold for LVN signals
-    gap_strength_threshold: 0.02  # Minimum gap strength for signals
-    volume_confirmation: true     # Require volume confirmation
-    signal_cooldown: 10          # Bars between similar signals
+    atr_period: 14               # ATR period for distance calculations
+    lvn_dist_multiplier: 0.25    # ATR multiplier for LVN proximity
+    poc_shift_multiplier: 0.5    # ATR multiplier for POC shift threshold
+    hvn_overlap_pct: 0.3         # Minimum overlap for HVN confluence
+    min_fvg_size: 1.0            # Minimum FVG size to consider valid
+    lookback_validation: 5       # Bars to look back for validation
   
   # ADX for regime detection and trend filtering
   - id: "ADX_14"
     type: "ADX"
     timeframe: "1h"              # Higher timeframe for regime detection
-    length: 14                   # Standard ADX period
-    smoothing: 14               # DI smoothing period
-    threshold_trending: 25      # Above this = trending market
-    threshold_ranging: 20       # Below this = ranging market
+    period: 14                   # Standard ADX period
+    trend_threshold: 25          # Above this = trending market
+    range_threshold: 20          # Below this = ranging market
   
   # Supporting indicators for confluence
   - id: "EMA_20"
@@ -74,90 +67,60 @@ indicators:
 
 # VP-FVG Confluence Trading Logic with Regime-Aware Filtering
 logic:
-  # LONG ENTRY CONDITIONS - Confluence-based with regime filtering
+  # LONG ENTRY CONDITIONS - Simplified for testing
   entry_long:
-    # PRIMARY CONFLUENCE SIGNAL: VPFVGSignal confirms bullish setup
-    - "VPFVGSignal_vf_long == True"
-    
-    # REGIME FILTER: ADX-based market condition filtering
-    - "(ADX_14_adx < 25 and VPFVGSignal_signal_type == 'reversal') or (ADX_14_adx > 25 and VPFVGSignal_signal_type == 'continuation')"
+    # PRIMARY SIGNAL: Use FVG directly since VPFVGSignal has few long signals
+    - "FVG_Enhanced_FVG_bullish_signal"
     
     # TREND ALIGNMENT: Price above EMA for trend confirmation
     - "close > EMA_20"
     
-    # MOMENTUM CONFIRMATION: RSI not overbought
-    - "RSI_14 < 75"
-    
     # VOLUME CONFIRMATION: Above average volume
     - "volume > VP_5D_average_volume * 1.1"
-    
-    # SIGNAL QUALITY: Strong confluence signal
-    - "VPFVGSignal_signal_strength > 0.5"
 
-  # LONG EXIT CONDITIONS - Enhanced with confluence refinements
+  # LONG EXIT CONDITIONS - Simplified
   exit_long:
-    # PROFIT TAKING: Confluence signal reverses
-    - "VPFVGSignal_vf_short == True"
+    # PROFIT TAKING: Opposite FVG signal
+    - "FVG_Enhanced_FVG_bearish_signal"
     
     # STOP LOSS: Price breaks key VP level
     - "close < VP_5D_val_price"
-    
-    # TREND REVERSAL: Price below EMA with momentum shift
-    - "close < EMA_20 and RSI_14 < 30"
-    
-    # REGIME CHANGE: Market shifts to unfavorable conditions
-    - "ADX_14_adx > 35 and VPFVGSignal_signal_type == 'reversal'"
 
-  # SHORT ENTRY CONDITIONS - Confluence-based with regime filtering
+  # SHORT ENTRY CONDITIONS - Simplified for testing
   entry_short:
-    # PRIMARY CONFLUENCE SIGNAL: VPFVGSignal confirms bearish setup
-    - "VPFVGSignal_vf_short == True"
-    
-    # REGIME FILTER: ADX-based market condition filtering
-    - "(ADX_14_adx < 25 and VPFVGSignal_signal_type == 'reversal') or (ADX_14_adx > 25 and VPFVGSignal_signal_type == 'continuation')"
+    # PRIMARY SIGNAL: Use FVG directly
+    - "FVG_Enhanced_FVG_bearish_signal"
     
     # TREND ALIGNMENT: Price below EMA for trend confirmation
     - "close < EMA_20"
     
-    # MOMENTUM CONFIRMATION: RSI not oversold
-    - "RSI_14 > 25"
-    
     # VOLUME CONFIRMATION: Above average volume
     - "volume > VP_5D_average_volume * 1.1"
-    
-    # SIGNAL QUALITY: Strong confluence signal
-    - "VPFVGSignal_signal_strength > 0.5"
 
-  # SHORT EXIT CONDITIONS - Enhanced with confluence refinements
+  # SHORT EXIT CONDITIONS - Simplified
   exit_short:
-    # PROFIT TAKING: Confluence signal reverses
-    - "VPFVGSignal_vf_long == True"
+    # PROFIT TAKING: Opposite FVG signal
+    - "FVG_Enhanced_FVG_bullish_signal"
     
     # STOP LOSS: Price breaks key VP level
     - "close > VP_5D_vah_price"
-    
-    # TREND REVERSAL: Price above EMA with momentum shift
-    - "close > EMA_20 and RSI_14 > 70"
-    
-    # REGIME CHANGE: Market shifts to unfavorable conditions
-    - "ADX_14_adx > 35 and VPFVGSignal_signal_type == 'reversal'"
 
 # Strategy Variants for Different Market Conditions
 variants:
   # Reversal-focused variant for ranging markets
   reversal_only:
     entry_long:
-      - "VPFVGSignal_vf_long == True"
+      - "VPFVGSignal_vf_long"
       - "VPFVGSignal_signal_type == 'reversal'"
-      - "ADX_14_adx < 25"  # Ranging market condition
+      - "ADX_14_ADX_value < 25"  # Ranging market condition
       - "close > EMA_20"
       - "RSI_14 < 75"
       - "volume > VP_5D_average_volume * 1.1"
     
     entry_short:
-      - "VPFVGSignal_vf_short == True"
+      - "VPFVGSignal_vf_short"
       - "VPFVGSignal_signal_type == 'reversal'"
-      - "ADX_14_adx < 25"  # Ranging market condition
+      - "ADX_14_ADX_value < 25"  # Ranging market condition
       - "close < EMA_20"
       - "RSI_14 > 25"
       - "volume > VP_5D_average_volume * 1.1"
@@ -165,19 +128,19 @@ variants:
   # Continuation-focused variant for trending markets
   continuation_only:
     entry_long:
-      - "VPFVGSignal_vf_long == True"
+      - "VPFVGSignal_vf_long"
       - "VPFVGSignal_signal_type == 'continuation'"
-      - "ADX_14_adx > 25"  # Trending market condition
-      - "ADX_14_di_plus > ADX_14_di_minus"  # Uptrend confirmation
+      - "ADX_14_ADX_value > 25"  # Trending market condition
+      - "ADX_14_DI_plus > ADX_14_DI_minus"  # Uptrend confirmation
       - "close > EMA_20"
       - "RSI_14 > 50"  # Momentum confirmation
       - "volume > VP_5D_average_volume * 1.2"
     
     entry_short:
-      - "VPFVGSignal_vf_short == True"
+      - "VPFVGSignal_vf_short"
       - "VPFVGSignal_signal_type == 'continuation'"
-      - "ADX_14_adx > 25"  # Trending market condition
-      - "ADX_14_di_minus > ADX_14_di_plus"  # Downtrend confirmation
+      - "ADX_14_ADX_value > 25"  # Trending market condition
+      - "ADX_14_DI_minus > ADX_14_DI_plus"  # Downtrend confirmation
       - "close < EMA_20"
       - "RSI_14 < 50"  # Momentum confirmation
       - "volume > VP_5D_average_volume * 1.2"
@@ -228,218 +191,5 @@ risk_management:
 backtest:
   cash: 50000           # Increased capital for realistic position sizing
   commission: 0.0004    # 0.04% commission per trade (realistic for spot)
-  from: "2021-11-01"    # Extended 15-month test period
-  to: "2022-11-01"      # Captures multiple market phases
-
-optimization:
-  parameters:
-    # Volume Profile Parameters
-    - name: "VP_5D.price_bins"
-      type: "integer"
-      low: 50
-      high: 150
-      default: 100
-      step: 5
-      description: "Price bins for VP resolution"
-    
-    - name: "VP_5D.value_area_pct"
-      type: "integer"
-      low: 60
-      high: 80
-      default: 70
-      step: 5
-      description: "Value Area percentage"
-    
-    - name: "VP_5D.min_volume_threshold"
-      type: "float"
-      low: 0.1
-      high: 1.0
-      default: 0.5
-      step: 0.1
-      description: "Minimum volume threshold for VP levels"
-    
-    # Enhanced FVG Parameters
-    - name: "FVG_Enhanced.min_gap_size"
-      type: "float"
-      low: 0.0005
-      high: 0.002
-      default: 0.001
-      step: 0.0001
-      description: "Minimum FVG size threshold"
-    
-    - name: "FVG_Enhanced.max_gap_age"
-      type: "integer"
-      low: 20
-      high: 100
-      default: 50
-      step: 5
-      description: "Maximum bars to keep FVG active"
-    
-    - name: "FVG_Enhanced.volume_threshold"
-      type: "float"
-      low: 1.0
-      high: 2.0
-      default: 1.2
-      step: 0.1
-      description: "Volume confirmation threshold for FVG"
-    
-    - name: "FVG_Enhanced.hvn_threshold"
-      type: "float"
-      low: 0.01
-      high: 0.05
-      default: 0.02
-      step: 0.005
-      description: "HVN classification threshold"
-    
-    - name: "FVG_Enhanced.lvn_threshold"
-      type: "float"
-      low: 0.002
-      high: 0.01
-      default: 0.005
-      step: 0.001
-      description: "LVN classification threshold"
-    
-    # VPFVGSignal Parameters
-    - name: "VPFVGSignal.hvn_overlap_threshold"
-      type: "float"
-      low: 0.2
-      high: 0.5
-      default: 0.3
-      step: 0.05
-      description: "HVN overlap threshold for confluence"
-    
-    - name: "VPFVGSignal.lvn_proximity_threshold"
-      type: "float"
-      low: 0.3
-      high: 0.8
-      default: 0.5
-      step: 0.1
-      description: "LVN proximity threshold for signals"
-    
-    - name: "VPFVGSignal.gap_strength_threshold"
-      type: "float"
-      low: 0.01
-      high: 0.05
-      default: 0.02
-      step: 0.005
-      description: "Minimum gap strength for signals"
-    
-    - name: "VPFVGSignal.signal_cooldown"
-      type: "integer"
-      low: 5
-      high: 20
-      default: 10
-      step: 1
-      description: "Bars between similar signals"
-    
-    # ADX Parameters
-    - name: "ADX_14.threshold_trending"
-      type: "integer"
-      low: 20
-      high: 35
-      default: 25
-      step: 1
-      description: "ADX threshold for trending markets"
-    
-    - name: "ADX_14.threshold_ranging"
-      type: "integer"
-      low: 15
-      high: 25
-      default: 20
-      step: 1
-      description: "ADX threshold for ranging markets"
-    
-    # Risk Management Parameters
-    - name: "risk_management.position_size.base_size"
-      type: "float"
-      low: 0.05
-      high: 0.2
-      default: 0.1
-      step: 0.01
-      description: "Base position size as fraction of capital"
-    
-    - name: "risk_management.stop_loss.base_percent"
-      type: "float"
-      low: 0.01
-      high: 0.05
-      default: 0.02
-      step: 0.002
-      description: "Base stop loss percentage"
-    
-    - name: "risk_management.take_profit.base_percent"
-      type: "float"
-      low: 0.02
-      high: 0.08
-      default: 0.04
-      step: 0.005
-      description: "Base take profit percentage"
-
-  # Default optimization settings
-  defaults:
-    method: "bayesian"           # Optimization algorithm
-    validation: "walk_forward"   # Validation strategy
-    metric: "sharpe_ratio"       # Primary optimization metric
-    max_iterations: 50           # Maximum optimization iterations
-    
-    # Validation configuration
-    validation_config:
-      n_splits: 5                # Number of validation folds
-      test_size: 0.2             # Test set proportion
-      gap: 24                    # Gap between train/test (hours)
-    
-    # Robustness testing
-    robustness_tests:
-      - type: "monte_carlo"
-        simulations: 1000
-        noise_level: 0.05
-      - type: "bootstrap"
-        n_bootstrap: 500
-        confidence_level: 0.95      
-
-# VP-FVG CONFLUENCE STRATEGY EXPLANATION:
-#
-# ADVANCED CONFLUENCE SYSTEM:
-# - Volume Profile: Identifies key support/resistance levels and market structure
-# - Enhanced FVG: Detects fair value gaps with VP bin-index tagging for classification
-# - VPFVGSignal: Generates confluence signals combining VP levels with FVG setups
-# - ADX Regime Filter: Adapts strategy behavior based on market conditions
-#
-# CORE TRADING SETUPS:
-# 1. REVERSAL SETUP (Ranging Markets, ADX < 25):
-#    - Bullish FVG near Low Volume Node (LVN) indicates potential reversal
-#    - Price rejection from key VP levels with gap formation
-#    - Lower risk/reward ratio but higher win rate
-#
-# 2. CONTINUATION SETUP (Trending Markets, ADX > 25):
-#    - Bearish FVG overlapping High Volume Node (HVN) confirms trend continuation
-#    - Price respects VP levels as support/resistance in trending moves
-#    - Higher risk/reward ratio with trend momentum
-#
-# CONFLUENCE FACTORS:
-# - FVG-VP Overlap: Fair value gaps intersecting with significant VP levels
-# - Volume Confirmation: Above-average volume validates institutional interest
-# - Regime Awareness: ADX determines appropriate setup type and position sizing
-# - Signal Quality: Strength-based filtering ensures high-probability setups
-#
-# RISK MANAGEMENT:
-# - Regime-aware position sizing: Larger positions in trending, smaller in ranging
-# - VP-based stop losses: Use natural support/resistance levels
-# - Confluence-based targets: Opposite VP levels and FVG fill targets
-# - Partial profit taking: Systematic position reduction at key levels
-#
-# STRATEGY VARIANTS:
-# - Combined: Uses both reversal and continuation setups based on regime
-# - Reversal-only: Focuses on mean reversion in ranging markets
-# - Continuation-only: Trades with trend momentum in trending markets
-#
-# EXPECTED PERFORMANCE:
-# - Higher signal quality through multi-factor confluence
-# - Reduced false signals with regime-aware filtering
-# - Better risk-adjusted returns through adaptive position sizing
-# - Robust performance across different market conditions
-#
-# PRODUCTION READINESS:
-# - Comprehensive parameter optimization
-# - Multiple strategy variants for different market conditions
-# - Advanced risk management with regime awareness
-# - Extensive backtesting and validation framework
+  from: "2023-01-01"    # Extended 15-month test period
+  to: "2024-01-01"      # Captures multiple market phases
