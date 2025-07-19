@@ -126,8 +126,10 @@ class PositionSizer:
         if stop_distance < min_stop_distance:
             warnings.append(f"Stop distance {stop_distance:.4f} is very small (< 0.1% of entry price)")
         
-        # Calculate position size
+        # Calculate position size (units)
         if stop_distance > 0:
+            # Position size = Risk Amount / Stop Distance
+            # For BTC: position_size_btc = risk_amount / stop_distance_dollars
             position_size = risk_amount / stop_distance
         else:
             return PositionSizeResult(
@@ -199,7 +201,7 @@ class PositionSizer:
         """
         result = self.calculate_position_size(equity, entry_price, stop_price, risk_pct)
         if result.is_valid:
-            return self.calculate_units_from_notional(result.position_size, entry_price)
+            return result.position_size  # Already in units, no need to convert
         else:
             return 0.0
     
@@ -257,23 +259,26 @@ class PositionSizer:
         validated_size = position_size
         
         # Check minimum position value
-        if validated_size < self.min_position_value:
-            warnings.append(f"Position size {validated_size:.2f} below minimum {self.min_position_value:.2f}")
-            validated_size = self.min_position_value
+        position_value = validated_size * entry_price
+        if position_value < self.min_position_value:
+            warnings.append(f"Position value ${position_value:.2f} below minimum ${self.min_position_value:.2f}")
+            validated_size = self.min_position_value / entry_price
         
         # Check maximum position percentage
+        position_value = validated_size * entry_price
         max_position_value = equity * self.max_position_pct
-        if validated_size > max_position_value:
+        if position_value > max_position_value:
             warnings.append(
-                f"Position size {validated_size:.2f} exceeds maximum {max_position_value:.2f} "
+                f"Position value ${position_value:.2f} exceeds maximum ${max_position_value:.2f} "
                 f"({self.max_position_pct:.1%} of equity)"
             )
-            validated_size = max_position_value
+            validated_size = max_position_value / entry_price
         
-        # Check if position size exceeds equity
-        if validated_size > equity:
-            warnings.append(f"Position size {validated_size:.2f} exceeds equity {equity:.2f}")
-            validated_size = equity * 0.95  # Use 95% of equity as maximum
+        # Check if position value exceeds equity
+        position_value = validated_size * entry_price
+        if position_value > equity:
+            warnings.append(f"Position value ${position_value:.2f} exceeds equity ${equity:.2f}")
+            validated_size = (equity * 0.95) / entry_price  # Use 95% of equity as maximum
         
         return validated_size, warnings
 
