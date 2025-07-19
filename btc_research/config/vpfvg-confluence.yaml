@@ -115,8 +115,8 @@ logic:
 backtest:
   cash: 100000          # Initial capital
   commission: 0.0004    # 0.04% commission per trade (realistic for spot)
-  from: "2021-11-01"    # Start date
-  to: "2022-11-01"      # End date
+  from: "2024-01-01"    # Start date
+  to: "2025-01-01"      # End date
 
 # Equity Protection - Prevent catastrophic drawdowns
 equity_protection:
