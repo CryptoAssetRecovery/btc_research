@@ -207,7 +207,8 @@ class DynamicStrategy(bt.Strategy):
             try:
                 self.position_sizer = BacktraderPositionSizer(
                     risk_pct=self.risk_pct,
-                    max_position_pct=0.2  # Maximum 20% of equity per position
+                    max_position_pct=self.max_position_pct,
+                    min_position_value=10.0  # Lower minimum to allow smaller positions
                 )
             except Exception as e:
                 if self.debug:
@@ -281,13 +282,14 @@ class DynamicStrategy(bt.Strategy):
         """
         try:
             if is_long:
-                # Prefixed columns produced by RiskManagement indicator
+                # Priority 1: Immediate (unshifted) columns for position sizing on entry
+                if 'RiskManagement_long_stop_loss_immediate' in eval_context and not pd.isna(eval_context['RiskManagement_long_stop_loss_immediate']):
+                    return eval_context['RiskManagement_long_stop_loss_immediate']
+                # Priority 2: Standard shifted columns for ongoing position management
                 if 'RiskManagement_long_stop_loss' in eval_context and not pd.isna(eval_context['RiskManagement_long_stop_loss']):
                     return eval_context['RiskManagement_long_stop_loss']
                 if 'RiskManagement_long_trailing_stop' in eval_context and not pd.isna(eval_context['RiskManagement_long_trailing_stop']):
                     return eval_context['RiskManagement_long_trailing_stop']
-                if 'RiskManagement_long_stop_loss_immediate' in eval_context and not pd.isna(eval_context['RiskManagement_long_stop_loss_immediate']):
-                    return eval_context['RiskManagement_long_stop_loss_immediate']
                 # Fallback to unprefixed names for backward compatibility
                 if 'long_stop_loss' in eval_context and not pd.isna(eval_context['long_stop_loss']):
                     return eval_context['long_stop_loss']
@@ -295,13 +297,14 @@ class DynamicStrategy(bt.Strategy):
                     return eval_context['long_trailing_stop']
             
             else:
-                # Look for short stop loss from risk management
+                # Priority 1: Immediate (unshifted) columns for position sizing on entry
+                if 'RiskManagement_short_stop_loss_immediate' in eval_context and not pd.isna(eval_context['RiskManagement_short_stop_loss_immediate']):
+                    return eval_context['RiskManagement_short_stop_loss_immediate']
+                # Priority 2: Standard shifted columns for ongoing position management
                 if 'RiskManagement_short_stop_loss' in eval_context and not pd.isna(eval_context['RiskManagement_short_stop_loss']):
                     return eval_context['RiskManagement_short_stop_loss']
                 if 'RiskManagement_short_trailing_stop' in eval_context and not pd.isna(eval_context['RiskManagement_short_trailing_stop']):
                     return eval_context['RiskManagement_short_trailing_stop']
-                if 'RiskManagement_short_stop_loss_immediate' in eval_context and not pd.isna(eval_context['RiskManagement_short_stop_loss_immediate']):
-                    return eval_context['RiskManagement_short_stop_loss_immediate']
                 if 'short_stop_loss' in eval_context and not pd.isna(eval_context['short_stop_loss']):
                     return eval_context['short_stop_loss']
                 if 'short_trailing_stop' in eval_context and not pd.isna(eval_context['short_trailing_stop']):
@@ -313,9 +316,9 @@ class DynamicStrategy(bt.Strategy):
                 current_price = self.data.close[0]
                 if atr and not pd.isna(atr) and atr > 0:
                     if is_long:
-                        return current_price - (2.0 * atr)  # 2 ATR stop
+                        return current_price - (0.5 * atr)  # 0.5 ATR stop (tighter)
                     else:
-                        return current_price + (2.0 * atr)  # 2 ATR stop
+                        return current_price + (0.5 * atr)  # 0.5 ATR stop (tighter)
             
             return None
             
@@ -510,6 +513,7 @@ class Backtester:
         # Read risk management settings from config
         risk_config = self.config.get("risk_management", {})
         self.risk_pct = risk_config.get("risk_pct", risk_pct)
+        self.max_position_pct = risk_config.get("max_position_pct", 0.2)
         self.use_position_sizing = risk_config.get("use_position_sizing", use_position_sizing)
         
         # Store equity protection config for later initialization
