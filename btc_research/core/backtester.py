@@ -253,9 +253,13 @@ class DynamicStrategy(bt.Strategy):
             
             if self.debug:
                 equity = self.broker.getvalue()
-                risk_amount = abs(entry_price - stop_price) * size
+                stop_distance = abs(entry_price - stop_price)
+                intended_risk_amount = equity * self.risk_pct
+                actual_notional_risk = stop_distance * size
                 print(f"Position size calculation: {size:.6f} shares")
-                print(f"Risk amount: ${risk_amount:.2f} ({risk_amount/equity:.2%} of equity)")
+                print(f"Intended risk: ${intended_risk_amount:.2f} ({self.risk_pct:.2%} of equity)")
+                print(f"Stop distance: ${stop_distance:.2f}")
+                print(f"Actual notional risk if stopped: ${actual_notional_risk:.2f}")
             
             return size
             
