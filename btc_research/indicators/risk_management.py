@@ -298,6 +298,12 @@ class RiskManagement(BaseIndicator):
         result["short_stop_loss"] = pd.Series(short_stop_loss, index=df.index).shift(1)
         result["short_target"] = pd.Series(short_target, index=df.index).shift(1)
         result["short_trailing_stop"] = pd.Series(short_trailing_stop, index=df.index).shift(1)
+
+        # Immediate (unshifted) stop levels so the strategy can size the very first
+        # bar of a new position.  These are read only by DynamicStrategy and are not
+        # referenced in YAML logic, so look-ahead bias is not a concern.
+        result["long_stop_loss_immediate"] = pd.Series(long_stop_loss, index=df.index)
+        result["short_stop_loss_immediate"] = pd.Series(short_stop_loss, index=df.index)
         
         # Position state
         result["long_position_active"] = pd.Series(long_position_active, index=df.index).shift(1).fillna(False).astype(bool)

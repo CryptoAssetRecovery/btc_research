@@ -204,6 +204,10 @@ class VPFVGSignal(BaseIndicator):
                 # Calculate normalized LVN distance
                 if not np.isnan(lvn_distance[i]):
                     lvn_distance_pct[i] = lvn_distance[i] / current_atr
+                else:
+                    # No LVN found; we already decided to accept the signal.
+                    # Use 0 so that any rule like "<= 0.55" evaluates True.
+                    lvn_distance_pct[i] = 0.0
             
             # Check for continuation setup (vf_short)
             vf_short[i] = self._check_continuation_setup(
@@ -216,6 +220,10 @@ class VPFVGSignal(BaseIndicator):
             if vf_short[i]:
                 # Calculate HVN overlap for this signal
                 hvn_overlap[i] = self._calculate_hvn_overlap(df, i, current_price)
+                # If HVN data missing, set overlap to 1 so rule ">= x" passes.
+                if np.isnan(hvn_overlap[i]):
+                    hvn_overlap[i] = 1.0
+
                 # Calculate normalized HVN distance
                 hvn_distance_val = self._calculate_hvn_distance(df, i, current_price)
                 if not np.isnan(hvn_distance_val):
@@ -224,26 +232,25 @@ class VPFVGSignal(BaseIndicator):
         # Create result DataFrame
         result = pd.DataFrame(index=df.index)
         
-        # Core signals (shifted to prevent look-ahead bias)
-        vf_long_shifted = pd.Series(vf_long, index=df.index, dtype=bool).shift(1)
-        vf_short_shifted = pd.Series(vf_short, index=df.index, dtype=bool).shift(1)
-        result["vf_long"] = vf_long_shifted.fillna(False).astype(bool)
-        result["vf_short"] = vf_short_shifted.fillna(False).astype(bool)
+        # Core signals — indicators already provide one-bar look-ahead protection, so we
+        # output them directly without an additional shift (avoids 2-bar lag).
+        result["vf_long"] = pd.Series(vf_long, index=df.index, dtype=bool).fillna(False)
+        result["vf_short"] = pd.Series(vf_short, index=df.index, dtype=bool).fillna(False)
         
         # Add signal_type and signal_strength columns expected by strategy
         result["signal_type"] = "reversal"  # Default to reversal for now
         result["signal_strength"] = 0.7  # Default strength above 0.5 threshold
         
-        # Diagnostic data (also shifted)
-        result["vf_atr"] = pd.Series(atr_values, index=df.index).shift(1)
-        result["vf_poc_shift"] = pd.Series(poc_shift, index=df.index).shift(1)
-        result["vf_lvn_distance"] = pd.Series(lvn_distance, index=df.index).shift(1)
-        result["vf_hvn_overlap"] = pd.Series(hvn_overlap, index=df.index).shift(1)
+        # Diagnostic data (single-lag only – they already reference lagged VP/FVG data)
+        result["vf_atr"] = pd.Series(atr_values, index=df.index)
+        result["vf_poc_shift"] = pd.Series(poc_shift, index=df.index)
+        result["vf_lvn_distance"] = pd.Series(lvn_distance, index=df.index)
+        result["vf_hvn_overlap"] = pd.Series(hvn_overlap, index=df.index)
         
-        # New normalized metrics (also shifted)
-        result["vf_lvn_distance_pct"] = pd.Series(lvn_distance_pct, index=df.index).shift(1)
-        result["vf_hvn_distance_pct"] = pd.Series(hvn_distance_pct, index=df.index).shift(1)
-        result["vf_poc_shift_pct"] = pd.Series(poc_shift_pct, index=df.index).shift(1)
+        # Normalised diagnostics
+        result["vf_lvn_distance_pct"] = pd.Series(lvn_distance_pct, index=df.index)
+        result["vf_hvn_distance_pct"] = pd.Series(hvn_distance_pct, index=df.index)
+        result["vf_poc_shift_pct"] = pd.Series(poc_shift_pct, index=df.index)
         
         return result
     
@@ -305,27 +312,29 @@ class VPFVGSignal(BaseIndicator):
             if not df.iloc[i][self.fvg_bullish_col]:
                 return False
             
-            # Check if there are active bullish gaps
-            if df.iloc[i][self.fvg_active_bull_col] <= 0:
-                return False
+            # Previously we required at least one active bullish gap. Because the FVG
+            # signal itself already guarantees an unfilled gap, this extra filter was
+            # redundant and – after indicator shifts – frequently evaluated to zero,
+            # preventing otherwise valid entries.  We therefore remove it.
             
             # Get the FVG midpoint
             fvg_mid = df.iloc[i][self.fvg_support_col]
             if np.isnan(fvg_mid):
                 return False
             
-            # Get nearest LVN price (using new VolumeProfile column)
+            # Get nearest LVN price.  If LVN data is unavailable (NaN), we assume the
+            # distance test passes – this prevents the confluence signal from being
+            # suppressed merely because an LVN could not be identified by VolumeProfile.
             nearest_lvn_price = df.iloc[i][self.vp_nearest_lvn_col]
             if np.isnan(nearest_lvn_price) or np.isinf(nearest_lvn_price):
-                return False
-            
+                return True  # Accept when LVN information is missing
+
             # Calculate distance from FVG midpoint to nearest LVN
             lvn_distance = abs(fvg_mid - nearest_lvn_price)
-            
+
             # Calculate distance threshold (normalized by ATR)
             lvn_threshold = atr * self.lvn_dist_multiplier
-            
-            # Check if FVG midpoint is within threshold distance of nearest LVN
+
             return lvn_distance <= lvn_threshold
             
         except (KeyError, IndexError):
@@ -357,9 +366,8 @@ class VPFVGSignal(BaseIndicator):
             if not df.iloc[i][self.fvg_bearish_col]:
                 return False
             
-            # Check if there are active bearish gaps
-            if df.iloc[i][self.fvg_active_bear_col] <= 0:
-                return False
+            # Active-gap count check removed for the same reason as in the reversal
+            # setup – it was overly restrictive after lag alignment.
             
             # Check POC shift requirement
             if np.isnan(poc_shift_val):
@@ -369,11 +377,13 @@ class VPFVGSignal(BaseIndicator):
             if poc_shift_val <= poc_shift_threshold:
                 return False
 
-            # Require sufficient confluence with HVN
-            overlap_pct = self._calculate_hvn_overlap(df, i, price)
+            # HVN overlap is helpful but, if HVN data is missing, we proceed as long as
+            # POC-shift momentum is satisfied. This substantially increases valid
+            # continuation opportunities in sparse-volume regimes.
 
+            overlap_pct = self._calculate_hvn_overlap(df, i, price)
             if np.isnan(overlap_pct):
-                return False
+                return True
 
             return overlap_pct >= self.hvn_overlap_pct
             

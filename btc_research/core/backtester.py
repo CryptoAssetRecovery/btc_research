@@ -277,16 +277,30 @@ class DynamicStrategy(bt.Strategy):
         """
         try:
             if is_long:
-                # Look for long stop loss from risk management
-                if 'long_stop_loss' in eval_context:
+                # Prefixed columns produced by RiskManagement indicator
+                if 'RiskManagement_long_stop_loss' in eval_context and not pd.isna(eval_context['RiskManagement_long_stop_loss']):
+                    return eval_context['RiskManagement_long_stop_loss']
+                if 'RiskManagement_long_trailing_stop' in eval_context and not pd.isna(eval_context['RiskManagement_long_trailing_stop']):
+                    return eval_context['RiskManagement_long_trailing_stop']
+                if 'RiskManagement_long_stop_loss_immediate' in eval_context and not pd.isna(eval_context['RiskManagement_long_stop_loss_immediate']):
+                    return eval_context['RiskManagement_long_stop_loss_immediate']
+                # Fallback to unprefixed names for backward compatibility
+                if 'long_stop_loss' in eval_context and not pd.isna(eval_context['long_stop_loss']):
                     return eval_context['long_stop_loss']
-                elif 'long_trailing_stop' in eval_context:
+                if 'long_trailing_stop' in eval_context and not pd.isna(eval_context['long_trailing_stop']):
                     return eval_context['long_trailing_stop']
+            
             else:
                 # Look for short stop loss from risk management
-                if 'short_stop_loss' in eval_context:
+                if 'RiskManagement_short_stop_loss' in eval_context and not pd.isna(eval_context['RiskManagement_short_stop_loss']):
+                    return eval_context['RiskManagement_short_stop_loss']
+                if 'RiskManagement_short_trailing_stop' in eval_context and not pd.isna(eval_context['RiskManagement_short_trailing_stop']):
+                    return eval_context['RiskManagement_short_trailing_stop']
+                if 'RiskManagement_short_stop_loss_immediate' in eval_context and not pd.isna(eval_context['RiskManagement_short_stop_loss_immediate']):
+                    return eval_context['RiskManagement_short_stop_loss_immediate']
+                if 'short_stop_loss' in eval_context and not pd.isna(eval_context['short_stop_loss']):
                     return eval_context['short_stop_loss']
-                elif 'short_trailing_stop' in eval_context:
+                if 'short_trailing_stop' in eval_context and not pd.isna(eval_context['short_trailing_stop']):
                     return eval_context['short_trailing_stop']
             
             # Fallback: calculate ATR-based stop if ATR is available
@@ -620,10 +634,8 @@ class Backtester:
             cerebro.broker.setcash(cash)
             cerebro.broker.setcommission(commission=commission)
 
-            # Add position sizer - use risk-based position sizing
-            # Note: For proper risk management, position sizing should be calculated
-            # in the strategy using stop loss information. This is a fallback sizer.
-            cerebro.addsizer(bt.sizers.FixedSize, stake=1.0)  # Default fixed size
+            # We rely on DynamicStrategy to supply explicit size via the
+            # BacktraderPositionSizer, so no default FixedSize sizer is added here.
 
             # Create and add data feed
             data_feed = self._create_data_feed(df)

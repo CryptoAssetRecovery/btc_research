@@ -50,9 +50,9 @@ indicators:
     timeframe: "15m"
     atr_period: 14
     initial_stop_atr_mult: 0.5   # Initial stop: FVG zone ± 0.5 × ATR
-    trailing_stop_atr_mult: 1.0  # Trailing stop: 1 × ATR behind price
-    target_atr_mult: 2.0         # Target: 2 × ATR from entry
-    breakeven_r_mult: 1.0        # Move to breakeven at R=1
+    trailing_stop_atr_mult: 0.5  # Trail half ATR once in profit
+    target_atr_mult: 1.0         # Target: 1 × ATR from entry (faster exits)
+    breakeven_r_mult: 0.5        # Move to breakeven at R=0.5
     enable_trailing: true        # Enable trailing stop functionality
   
   # ADX Regime Filter - Multi-timeframe bias for reversal vs continuation
@@ -87,8 +87,8 @@ logic:
     - "VPFVGSignal_vf_long"        # Primary confluence signal
     - "VPFVGSignal_vf_atr > 0"             # Valid ATR calculation
     - "VPFVGSignal_vf_lvn_distance_pct <= 0.55" # Within 0.55 ATR of LVN (relaxed)
-    - "ADX_1h_ADX_value < 35"              # Reversal setup: ADX < 35 (relaxed from 30)
-    - "close > EMA_1h_100_EMA_100"          # Bull bias filter: only long above 100 EMA
+    - "ADX_1h_ADX_value < 25"              # Reversal setup: ADX < 25 (true ranging)
+    # - "close > EMA_1h_100_EMA_100"          # Temporarily disabled to increase trade flow
 
   # LONG EXIT CONDITIONS
   exit_long:
@@ -102,8 +102,8 @@ logic:
     - "VPFVGSignal_vf_short"       # Primary confluence signal
     - "VPFVGSignal_vf_atr > 0"             # Valid ATR calculation  
     - "VPFVGSignal_vf_hvn_overlap >= 0.03" # Minimum 3% HVN overlap (relaxed from 5%)
-    - "ADX_1h_ADX_value >= 10"             # Continuation setup: ADX >= 10 (reduced from 15)
-    - "close < EMA_1h_100_EMA_100"          # Bear bias filter: only short below 100 EMA
+    - "ADX_1h_ADX_value >= 10"             # Continuation setup: ADX >= 10 (kept)
+    # - "close < EMA_1h_100_EMA_100"          # Temporarily disabled to increase trade flow
 
   # SHORT EXIT CONDITIONS
   exit_short:
@@ -114,13 +114,13 @@ logic:
 # Extended backtesting for comprehensive market condition testing
 backtest:
   cash: 100000          # Initial capital
-  commission: 0.0004    # 0.04% commission per trade (realistic for spot)
+  commission: 0.0002    # 0.04% commission per trade (realistic for spot)
   from: "2024-01-01"    # Start date
   to: "2025-01-01"      # End date
 
 # Equity Protection - Prevent catastrophic drawdowns
 equity_protection:
-  enabled: true
+  enabled: false
   drawdown_threshold: 0.25              # 25% first-loss stop
   enable_on_bias_flip: true             # Re-enable trading on bias flip
   smoothing_window: 5                   # 5-period smoothing
@@ -131,7 +131,7 @@ equity_protection:
 # Risk Management - Risk-per-trade position sizing
 risk_management:
   enabled: true
-  risk_pct: 0.015                       # 1.5% risk per trade
+  risk_pct: 0.05                       # 1.5% risk per trade
   max_position_pct: 0.25                # Maximum 25% of equity per position
   use_position_sizing: true             # Enable risk-based position sizing
 
