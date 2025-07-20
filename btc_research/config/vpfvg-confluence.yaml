@@ -38,21 +38,21 @@ indicators:
     type: "VPFVGSignal"
     timeframe: "15m"
     atr_period: 14
-    lvn_dist_multiplier: 1.0     # Increase to 1.0 × ATR for LVN proximity (very generous)
-    poc_shift_multiplier: 0.2    # Reduce to 0.2 × ATR for POC shift threshold (more permissive)
-    hvn_overlap_pct: 0.01        # 1% overlap for HVN confluence (very relaxed)
-    min_fvg_size: 0.05           # Minimum FVG size (very small minimum)
-    lookback_validation: 10      # Reduce to 10 bars to look back for validation
+    lvn_dist_multiplier: 0.55    # Increase to 1.0 × ATR for LVN proximity (very generous)
+    poc_shift_multiplier: 0.3    # Reduce to 0.2 × ATR for POC shift threshold (more permissive)
+    hvn_overlap_pct: 0.03        # 1% overlap for HVN confluence (very relaxed)
+    min_fvg_size: 0.15           # Minimum FVG size (very small minimum)
+    lookback_validation: 20      # Reduce to 10 bars to look back for validation
   
   # Risk Management - ATR-based position management with R-multiple system
   - id: "RiskManagement"
     type: "RiskManagement"
     timeframe: "15m"
     atr_period: 14
-    initial_stop_atr_mult: 0.5       # Reduce from 1.0 to 0.5 ATR for tighter stops
-    trailing_stop_atr_mult: 0.75     # Reduce from 1.0 to 0.75 ATR for tighter trailing
-    target_atr_mult: 1.5             # Reduce from 2.0 to 1.5 ATR for more achievable targets
-    breakeven_r_mult: 0.5            # Move to breakeven at R=0.5 (was 0.75)
+    initial_stop_atr_mult: 1.0       # Reduce from 1.0 to 0.5 ATR for tighter stops
+    trailing_stop_atr_mult: 1.0      # Reduce from 1.0 to 0.75 ATR for tighter trailing
+    target_atr_mult: 2.0             # Reduce from 2.0 to 1.5 ATR for more achievable targets
+    breakeven_r_mult: 0.75            # Move to breakeven at R=0.5 (was 0.75)
     enable_trailing: true            # Enable trailing stop functionality
   
   # ADX Regime Filter - Multi-timeframe bias for reversal vs continuation
@@ -121,9 +121,9 @@ equity_protection:
 # Risk Management - Risk-per-trade position sizing
 risk_management:
   enabled: true
-  risk_pct: 0.05                       # Increase to 5% risk per trade (was 0.02) for larger positions
-  max_position_pct: 0.5                # Increase maximum to 50% of equity per position (was 0.3)
-  use_position_sizing: true             # Enable risk-based position sizing
+  risk_pct: 0.02                       # Increase to 5% risk per trade (was 0.02) for larger positions
+  max_position_pct: 0.3                # Increase maximum to 50% of equity per position (was 0.3)
+  use_position_sizing: true            # Enable risk-based position sizing
 
 # Optimization parameters (disabled for now)
 optimization:
