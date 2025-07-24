@@ -23,7 +23,7 @@ indicators:
     price_bins: 100       # Higher resolution for precise levels
     value_area_pct: 70    # Standard 70% Value Area
     update_frequency: 4   # Update every hour for performance
-    min_volume_threshold: 0.5    # Filter noise with minimum volume threshold (0.5%)
+    min_volume_threshold: 0.5   # Filter noise with minimum volume threshold (0.5%)
     atr_period: 14              # ATR period for POC breakout detection
     atr_multiplier: 2.0         # ATR multiplier for breakout threshold
   
@@ -32,7 +32,7 @@ indicators:
     type: "FVG"
     timeframe: "15m"
     min_gap_pips: 0.001       # Minimum gap size (0.1%)
-    min_gap_atr_mult: 0.25    # ATR multiplier for dynamic gap sizing
+    min_gap_atr_mult: 0.5     # ATR multiplier for dynamic gap sizing
     max_lookback: 50          # Maximum gaps to track
   
   # VP-FVG Confluence Signal Generator
@@ -59,6 +59,11 @@ indicators:
     type: "EMA"
     timeframe: "15m"
     length: 20
+
+  - id: "EMA_200"
+    type: "EMA"
+    timeframe: "1h"
+    length: 200
   
   - id: "RSI_14"
     type: "RSI"
@@ -71,6 +76,15 @@ logic:
   entry_long:
     # PRIMARY SIGNAL: Use FVG directly since VPFVGSignal has few long signals
     - "FVG_Enhanced_FVG_bullish_signal"
+
+    # BREAKOUT CONFIRMATION: Price closing above value area high
+    - "close > VP_5D_vah_price"
+
+    # TREND ALIGNMENT: Price above EMA for trend confirmation
+    - "close > EMA_20"
+
+    # LONG-TERM TREND FILTER
+    - "close > EMA_200"
     
     # TREND ALIGNMENT: Price above EMA for trend confirmation
     - "close > EMA_20"
@@ -82,6 +96,9 @@ logic:
   exit_long:
     # PROFIT TAKING: Opposite FVG signal
     - "FVG_Enhanced_FVG_bearish_signal"
+
+    # BREAKOUT CONFIRMATION: Price closing below value area low
+    - "close < VP_5D_val_price"
     
     # STOP LOSS: Price breaks key VP level
     - "close < VP_5D_val_price"
@@ -90,9 +107,15 @@ logic:
   entry_short:
     # PRIMARY SIGNAL: Use FVG directly
     - "FVG_Enhanced_FVG_bearish_signal"
-    
+
+    # BREAKOUT CONFIRMATION: Price closing below value area low
+    - "close < VP_5D_val_price"
+
     # TREND ALIGNMENT: Price below EMA for trend confirmation
     - "close < EMA_20"
+
+    # LONG-TERM TREND FILTER
+    - "close < EMA_200"
     
     # VOLUME CONFIRMATION: Above average volume
     - "volume > VP_5D_average_volume * 1.1"
@@ -191,5 +214,34 @@ risk_management:
 backtest:
   cash: 50000           # Increased capital for realistic position sizing
   commission: 0.0004    # 0.04% commission per trade (realistic for spot)
-  from: "2022-11-01"    # Extended 15-month test period
+  from: "2021-01-01"    # Extended 15-month test period
   to: "2025-01-01"      # Captures multiple market phases
+
+
+# Optimization parameters
+optimization:
+  parameters:
+    # Most impactful - controls VP resolution
+    - name: "VP_5D.price_bins"
+      type: "integer"
+      low: 80
+      high: 120
+      default: 100
+      step: 10
+
+    # Volume filtering - directly affects signal generation
+    - name: "VP_5D.min_volume_threshold"
+      type: "float"
+      low: 0.3
+      high: 0.7
+      default: 0.5
+      step: 0.1
+
+    # Gap sizing - controls FVG signal sensitivity  
+    - name: "FVG_Enhanced.min_gap_atr_mult"
+      type: "float"
+      low: 0.3
+      high: 0.7
+      default: 0.5
+      step: 0.1
+      
