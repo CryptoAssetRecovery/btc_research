@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Paper Trading Dashboard{% endblock %}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Chart.js and plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-crosshair"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --success-color: #16a34a;
+            --danger-color: #dc2626;
+            --warning-color: #ea580c;
+            --info-color: #0891b2;
+            --dark-color: #1f2937;
+            --light-color: #f8fafc;
+        }
+
+
+        body {
+            background-color: var(--light-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+
+        .navbar {
+            background: linear-gradient(135deg, var(--primary-color), #3b82f6);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+
+
+        .sidebar {
+            background: white;
+            box-shadow: 2px 0 4px rgba(0,0,0,0.1);
+            min-height: calc(100vh - 76px);
+        }
+
+
+        .sidebar .nav-link {
+            color: var(--dark-color);
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin: 0.25rem 0;
+            transition: all 0.2s ease;
+        }
+
+
+        .sidebar .nav-link:hover {
+            background-color: rgba(37, 99, 235, 0.1);
+            color: var(--primary-color);
+        }
+
+
+        .sidebar .nav-link.active {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+
+        .main-content {
+            padding: 2rem;
+            background-color: var(--light-color);
+        }
+
+
+        .card {
+            border: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-radius: 0.75rem;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+        }
+
+
+        .status-running {
+            background-color: var(--success-color);
+            animation: pulse 2s infinite;
+        }
+
+
+        .status-stopped {
+            background-color: var(--danger-color);
+        }
+
+
+        .status-degraded {
+            background-color: var(--warning-color);
+        }
+
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+
+        .metric-card {
+            text-align: center;
+            padding: 1.5rem;
+        }
+
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+
+        .metric-label {
+            color: #6b7280;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+
+        .positive {
+            color: var(--success-color);
+        }
+
+
+        .negative {
+            color: var(--danger-color);
+        }
+
+
+        .neutral {
+            color: var(--info-color);
+        }
+
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+
+        .btn-success {
+            background-color: var(--success-color);
+            border-color: var(--success-color);
+        }
+
+
+        .btn-danger {
+            background-color: var(--danger-color);
+            border-color: var(--danger-color);
+        }
+
+
+        .table {
+            background: white;
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+
+
+        .table th {
+            background-color: #f8fafc;
+            border-bottom: 2px solid #e5e7eb;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            color: var(--dark-color);
+        }
+
+
+        .connection-status {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            transition: all 0.3s ease;
+        }
+
+
+        .connection-connected {
+            background-color: var(--success-color);
+            color: white;
+        }
+
+
+        .connection-disconnected {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+
+        .loading-spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+
+        .alert {
+            border: none;
+            border-radius: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+
+        .toast-container {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            z-index: 1050;
+        }
+
+
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 76px;
+                left: -250px;
+                width: 250px;
+                height: calc(100vh - 76px);
+                z-index: 1000;
+                transition: left 0.3s ease;
+            }
+
+
+            .sidebar.show {
+                left: 0;
+            }
+
+
+            .main-content {
+                margin-left: 0;
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+                <i class="fas fa-chart-line me-2"></i>
+                Paper Trading Dashboard
+            </a>
+            
+            <button class="navbar-toggler d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#sidebarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="navbar-nav ms-auto">
+                <div class="nav-item">
+                    <span class="navbar-text">
+                        <i class="fas fa-circle status-indicator 
+                           {% if system_status == 'healthy' %}status-running{% else %}status-degraded{% endif %}"></i>
+                        System: {{ system_status|title }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-lg-2 d-lg-block sidebar collapse" id="sidebarNav">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" 
+                               href="{{ url_for('dashboard') }}">
+                                <i class="fas fa-tachometer-alt me-2"></i>
+                                Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'trades' %}active{% endif %}" 
+                               href="{{ url_for('trades') }}">
+                                <i class="fas fa-exchange-alt me-2"></i>
+                                Trade History
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'charts' %}active{% endif %}" 
+                               href="{{ url_for('charts') }}">
+                                <i class="fas fa-chart-area me-2"></i>
+                                Charts
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'start_strategy' %}active{% endif %}" 
+                               href="{{ url_for('start_strategy') }}">
+                                <i class="fas fa-play me-2"></i>
+                                Start Strategy
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+
+            <!-- Main Content -->
+            <main class="col-lg-10 ms-lg-auto main-content">
+                <!-- Connection Status Indicator -->
+                <div id="connectionStatus" class="connection-status" style="display: none;">
+                    <i class="fas fa-wifi me-1"></i>
+                    <span id="connectionText">Connecting...</span>
+                </div>
+
+
+                <!-- Flash Messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        <div class="alert-container">
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                    <strong>
+                                        {% if category == 'error' %}
+                                            <i class="fas fa-exclamation-triangle me-1"></i>Error!
+                                        {% elif category == 'success' %}
+                                            <i class="fas fa-check-circle me-1"></i>Success!
+                                        {% elif category == 'info' %}
+                                            <i class="fas fa-info-circle me-1"></i>Info:
+                                        {% elif category == 'warning' %}
+                                            <i class="fas fa-exclamation-circle me-1"></i>Warning:
+                                        {% endif %}
+                                    </strong>
+                                    {{ message }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endwith %}
+
+
+                <!-- Page Header -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h2 mb-0">{{ page_title or 'Dashboard' }}</h1>
+                    <div class="btn-toolbar">
+                        {% block page_actions %}{% endblock %}
+                    </div>
+                </div>
+
+
+                <!-- Page Content -->
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+
+    <!-- Toast Container -->
+    <div class="toast-container"></div>
+
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JavaScript -->
+    <script>
+        // Configuration from Flask backend - make API URL dynamic based on current host
+        const currentHost = window.location.hostname;
+        const apiPort = '8002';
+        const dynamicApiUrl = `http://${currentHost}:${apiPort}`;
+        
+        window.API_CONFIG = {
+            baseUrl: dynamicApiUrl,
+            apiKey: '{{ config.get("API_KEY", "dev-key-123") }}'
+        };
+        
+        console.log('Dynamic API URL:', dynamicApiUrl);
+    </script>
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/advanced-charts.js') }}"></script>
+    
+    <script>
+        // Initialize WebSocket connection
+        const socket = io();
+        
+        // Connection status handling
+        const connectionStatus = document.getElementById('connectionStatus');
+        const connectionText = document.getElementById('connectionText');
+        
+        socket.on('connect', function() {
+            connectionStatus.className = 'connection-status connection-connected';
+            connectionText.textContent = 'Connected';
+            connectionStatus.style.display = 'block';
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+                connectionStatus.style.display = 'none';
+            }, 3000);
+        });
+        
+        socket.on('disconnect', function() {
+            connectionStatus.className = 'connection-status connection-disconnected';
+            connectionText.textContent = 'Disconnected';
+            connectionStatus.style.display = 'block';
+        });
+        
+        // Strategy updates
+        socket.on('strategy_update', function(data) {
+            console.log('Strategy update received:', data);
+            
+            // Update strategy cards if on dashboard
+            if (window.location.pathname === '/' || window.location.pathname === '/dashboard') {
+                updateStrategyCard(data.strategy_id, data.stats);
+            }
+            
+            // Update strategy detail page if viewing specific strategy
+            if (window.location.pathname.includes('/strategy/')) {
+                const pathParts = window.location.pathname.split('/');
+                const currentStrategyId = pathParts[pathParts.length - 1];
+                if (currentStrategyId === data.strategy_id) {
+                    updateStrategyDetails(data.stats);
+                }
+            }
+        });
+        
+        // Subscribe to strategy updates if on strategy page
+        if (window.location.pathname.includes('/strategy/')) {
+            const pathParts = window.location.pathname.split('/');
+            const strategyId = pathParts[pathParts.length - 1];
+            socket.emit('subscribe_strategy', { strategy_id: strategyId });
+        }
+        
+        // Auto-refresh functionality
+        let autoRefreshInterval;
+        
+        function startAutoRefresh(intervalMs = 30000) {
+            stopAutoRefresh();
+            autoRefreshInterval = setInterval(() => {
+                // Only refresh if not viewing charts (to avoid interrupting user interaction)
+                if (!window.location.pathname.includes('/charts')) {
+                    location.reload();
+                }
+            }, intervalMs);
+        }
+        
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+        
+        // Start auto-refresh for dashboard and strategy pages
+        if (window.location.pathname === '/' || 
+            window.location.pathname === '/dashboard' ||
+            window.location.pathname.includes('/strategy/')) {
+            startAutoRefresh();
+        }
+        
+        // Stop auto-refresh when user is interacting with the page
+        let userActivityTimer;
+        document.addEventListener('mousemove', () => {
+            clearTimeout(userActivityTimer);
+            userActivityTimer = setTimeout(() => {
+                if (!autoRefreshInterval) {
+                    startAutoRefresh();
+                }
+            }, 60000); // Resume after 1 minute of inactivity
+        });
+        
+        // Utility functions
+        function formatCurrency(value) {
+            if (value === null || value === undefined) return '$0.00';
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            }).format(value);
+        }
+        
+        function formatPercentage(value) {
+            if (value === null || value === undefined) return '0.00%';
+            return `${parseFloat(value).toFixed(2)}%`;
+        }
+        
+        function formatDateTime(timestamp) {
+            if (!timestamp) return 'N/A';
+            return new Date(timestamp).toLocaleString();
+        }
+        
+        function showToast(message, type = 'info') {
+            const toastContainer = document.querySelector('.toast-container');
+            const toastId = 'toast-' + Date.now();
+            
+            const toast = document.createElement('div');
+            toast.className = `toast align-items-center text-white bg-${type} border-0`;
+            toast.id = toastId;
+            toast.setAttribute('role', 'alert');
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" 
+                            data-bs-dismiss="toast"></button>
+                </div>
+            `;
+            
+            toastContainer.appendChild(toast);
+            
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            
+            // Remove from DOM after hiding
+            toast.addEventListener('hidden.bs.toast', () => {
+                toast.remove();
+            });
+        }
+        
+        // Update functions for real-time data
+        function updateStrategyCard(strategyId, stats) {
+            const card = document.querySelector(`[data-strategy-id="${strategyId}"]`);
+            if (card && stats) {
+                // Update balance
+                const balanceEl = card.querySelector('.balance-value');
+                if (balanceEl && stats.trading && stats.trading.total_equity) {
+                    balanceEl.textContent = formatCurrency(stats.trading.total_equity);
+                }
+                
+                // Update P&L
+                const pnlEl = card.querySelector('.pnl-value');
+                if (pnlEl && stats.performance && stats.performance.total_return) {
+                    const pnl = stats.performance.total_return;
+                    pnlEl.textContent = formatCurrency(pnl);
+                    pnlEl.className = `pnl-value ${pnl >= 0 ? 'positive' : 'negative'}`;
+                }
+                
+                // Update timestamp
+                const timestampEl = card.querySelector('.last-updated');
+                if (timestampEl) {
+                    timestampEl.textContent = `Updated: ${formatDateTime(new Date())}`;
+                }
+            }
+        }
+        
+        function updateStrategyDetails(stats) {
+            if (!stats) return;
+            
+            // Update various metrics on strategy detail page
+            const elements = {
+                'total-equity': stats.trading?.total_equity,
+                'total-return': stats.performance?.total_return,
+                'total-trades': stats.performance?.total_trades,
+                'win-rate': stats.performance?.win_rate,
+                'sharpe-ratio': stats.performance?.sharpe_ratio
+            };
+            
+            Object.entries(elements).forEach(([id, value]) => {
+                const element = document.getElementById(id);
+                if (element && value !== undefined) {
+                    if (id.includes('equity') || id.includes('return')) {
+                        element.textContent = formatCurrency(value);
+                    } else if (id.includes('rate') || id.includes('ratio')) {
+                        element.textContent = formatPercentage(value);
+                    } else {
+                        element.textContent = value;
+                    }
+                }
+            });
+        }
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

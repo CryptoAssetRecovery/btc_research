@@ -1,0 +1,761 @@
+{% extends "base.html" %}
+
+{% block title %}Advanced Charts - Paper Trading{% endblock %}
+
+{% block page_actions %}
+    <div class="btn-group me-2">
+        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+            <i class="fas fa-robot me-1"></i>
+            <span id="selectedStrategyName">Select Strategy</span>
+        </button>
+        <ul class="dropdown-menu">
+            {% for strategy in strategies %}
+                <li>
+                    <a class="dropdown-item" href="#" onclick="selectStrategy('{{ strategy.id }}', '{{ strategy.name or strategy.id[:12] + "..." }}')">
+                        <i class="fas fa-chart-line me-2"></i>
+                        {{ strategy.name or strategy.id[:12] + '...' }}
+                        <small class="text-muted d-block">{{ strategy.symbol }} - {{ strategy.status|title }}</small>
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+    
+    <div class="btn-group me-2">
+        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+            <i class="fas fa-clock me-1"></i>
+            <span id="selectedTimeframe">1m</span>
+        </button>
+        <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('1m')">1 Minute</a></li>
+            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('5m')">5 Minutes</a></li>
+            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('15m')">15 Minutes</a></li>
+            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('1h')">1 Hour</a></li>
+            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('1d')">1 Day</a></li>
+        </ul>
+    </div>
+
+    <div class="btn-group me-2">
+        <button type="button" class="btn btn-outline-info" onclick="toggleTheme()">
+            <i class="fas fa-palette me-1"></i>
+            <span id="themeText">Dark Mode</span>
+        </button>
+    </div>
+
+    <div class="btn-group">
+        <button onclick="refreshCharts()" class="btn btn-outline-success">
+            <i class="fas fa-sync-alt me-1"></i>
+            Refresh
+        </button>
+        <button onclick="resetZoom()" class="btn btn-outline-warning">
+            <i class="fas fa-search-minus me-1"></i>
+            Reset Zoom
+        </button>
+        <button onclick="exportChart()" class="btn btn-outline-primary">
+            <i class="fas fa-download me-1"></i>
+            Export
+        </button>
+    </div>
+{% endblock %}
+
+{% block content %}
+<!-- Chart Status Bar -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card border-0 bg-light">
+            <div class="card-body py-2">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h6 class="mb-0">
+                            <i class="fas fa-chart-candlestick me-2"></i>
+                            Advanced Trading Charts
+                            <span id="strategyStatus" class="text-muted ms-2">
+                                {% if strategies %}Select a strategy to begin{% else %}No strategies available{% endif %}
+                            </span>
+                        </h6>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <div class="d-flex justify-content-md-end align-items-center">
+                            <div class="me-3">
+                                <small class="text-muted">Last Update:</small>
+                                <span id="lastUpdate" class="fw-bold">Never</span>
+                            </div>
+                            <div class="status-indicator" id="connectionIndicator"></div>
+                            <small id="connectionStatus">Disconnected</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Price Chart -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-candlestick me-2"></i>
+                    OHLC Candlestick Chart with Trade Markers
+                </h5>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleVolume()" id="volumeToggle">
+                        <i class="fas fa-bar-chart me-1"></i>
+                        Volume
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleIndicators()" id="indicatorsToggle">
+                        <i class="fas fa-line-chart me-1"></i>
+                        Indicators
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="toggleTradeMarkers()" id="markersToggle">
+                        <i class="fas fa-map-marker-alt me-1"></i>
+                        Trades
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div style="height: 500px; position: relative;">
+                    <canvas id="mainChart"></canvas>
+                </div>
+                <div class="mt-3" id="chartStatus">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Select a strategy and timeframe to view candlestick chart with trade markers
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Performance Charts Row -->
+<div class="row mb-4">
+    <!-- P&L Chart -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-area me-2"></i>
+                    Performance Analysis
+                </h5>
+            </div>
+            <div class="card-body">
+                <div style="height: 300px; position: relative;">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+                <div class="mt-3" id="performanceStatus">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Select a strategy to view performance metrics
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Trade Statistics -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-pie me-2"></i>
+                    Trade Statistics
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value text-primary" id="totalTrades">0</div>
+                            <div class="metric-label">Total Trades</div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value text-success" id="winRate">0%</div>
+                            <div class="metric-label">Win Rate</div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value" id="totalPnL">$0.00</div>
+                            <div class="metric-label">Total P&L</div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value text-info" id="sharpeRatio">0.00</div>
+                            <div class="metric-label">Sharpe Ratio</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trade Distribution Chart -->
+                <div style="height: 120px; position: relative;">
+                    <canvas id="tradeDistributionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Advanced Metrics Row -->
+<div class="row mb-4">
+    <!-- Volume Profile -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-layer-group me-2"></i>
+                    Volume Profile Analysis
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="volumeProfileContainer">
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Volume profile data will appear here when available
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Risk Metrics -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-shield-alt me-2"></i>
+                    Risk Analysis
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value text-warning" id="maxDrawdown">0%</div>
+                            <div class="metric-label">Max Drawdown</div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value text-info" id="volatility">0%</div>
+                            <div class="metric-label">Volatility</div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value text-secondary" id="avgTrade">$0.00</div>
+                            <div class="metric-label">Avg Trade</div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="metric-card">
+                            <div class="metric-value text-secondary" id="profitFactor">0.00</div>
+                            <div class="metric-label">Profit Factor</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Trades Table -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-exchange-alt me-2"></i>
+                    Recent Trades
+                </h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="exportTrades()">
+                    <i class="fas fa-download me-1"></i>
+                    Export CSV
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="recentTradesTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Size</th>
+                                <th>Price</th>
+                                <th>P&L</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentTradesBody">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    No trades to display. Select a strategy to view trade history.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999;">
+    <div class="d-flex justify-content-center align-items-center h-100">
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="loading-spinner mb-3"></div>
+                <h5>Loading Chart Data...</h5>
+                <p class="text-muted mb-0" id="loadingMessage">Fetching market data and trade history...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Global chart instances
+    let mainTradingChart = null;
+    let performanceChart = null;
+    let tradeDistributionChart = null;
+    
+    // Current state
+    let currentStrategy = null;
+    let currentStrategyName = 'Select Strategy';
+    let currentTimeframe = '1m';
+    let currentTheme = 'light';
+    
+    // Chart options
+    let chartOptions = {
+        showVolume: true,
+        showIndicators: true,
+        showTradeMarkers: true,
+        realTimeUpdates: true
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeCharts();
+        
+        // Auto-select first strategy if available
+        {% if strategies %}
+            const firstStrategy = '{{ strategies[0].id }}';
+            const firstName = '{{ strategies[0].name or strategies[0].id[:12] + "..." }}';
+            setTimeout(() => selectStrategy(firstStrategy, firstName), 1000);
+        {% endif %}
+        
+        // Setup real-time updates
+        setupWebSocketUpdates();
+        
+        // Setup auto-refresh
+        setInterval(refreshChartsIfVisible, 30000); // Every 30 seconds
+    });
+
+    function initializeCharts() {
+        // Initialize main trading chart
+        mainTradingChart = new AdvancedTradingChart('mainChart', {
+            theme: currentTheme,
+            showVolume: chartOptions.showVolume,
+            showTradeMarkers: chartOptions.showTradeMarkers,
+            showIndicators: chartOptions.showIndicators,
+            realTimeUpdates: chartOptions.realTimeUpdates
+        });
+
+        // Initialize performance chart
+        performanceChart = new PerformanceChart('performanceChart', {
+            showDrawdown: true,
+            showBenchmark: false
+        });
+
+        // Initialize trade distribution chart
+        initializeTradeDistributionChart();
+    }
+
+    function initializeTradeDistributionChart() {
+        const ctx = document.getElementById('tradeDistributionChart').getContext('2d');
+        tradeDistributionChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Winning Trades', 'Losing Trades'],
+                datasets: [{
+                    data: [0, 0],
+                    backgroundColor: ['#22c55e', '#ef4444'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+    }
+
+    async function selectStrategy(strategyId, strategyName) {
+        if (!strategyId) return;
+        
+        currentStrategy = strategyId;
+        currentStrategyName = strategyName;
+        
+        // Update UI
+        document.getElementById('selectedStrategyName').textContent = strategyName;
+        document.getElementById('strategyStatus').textContent = `Loading data for ${strategyName}...`;
+        
+        await loadStrategyData();
+    }
+
+    async function loadStrategyData() {
+        if (!currentStrategy) return;
+        
+        showLoading(true, 'Loading comprehensive chart data...');
+        
+        try {
+            // Fetch all required data in parallel
+            const [chartResponse, statsResponse, tradesResponse] = await Promise.all([
+                fetch(`/api/chart-data/${currentStrategy}?period=${currentTimeframe}`),
+                apiClient.getStrategyStats(currentStrategy),
+                apiClient.getStrategyTrades(currentStrategy, 50, 0)
+            ]);
+            
+            const chartData = await chartResponse.json();
+            
+            if (chartData.error) {
+                throw new Error(chartData.error);
+            }
+            
+            // Update main trading chart
+            const indicators = await fetchIndicators(currentStrategy);
+            mainTradingChart.updateData(
+                chartData.market_data || [],
+                chartData.trades || [],
+                indicators
+            );
+            
+            // Update performance chart
+            const performanceData = await fetchPerformanceData(currentStrategy);
+            performanceChart.updateData(performanceData);
+            
+            // Update statistics
+            updateStatistics(statsResponse, chartData.trades || []);
+            
+            // Update recent trades table
+            updateRecentTradesTable(chartData.trades || []);
+            
+            // Update status
+            document.getElementById('strategyStatus').textContent = `${currentStrategyName} - ${currentTimeframe}`;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+            document.getElementById('chartStatus').innerHTML = `
+                <div class="text-success text-center">
+                    <i class="fas fa-check-circle me-1"></i>
+                    Chart loaded: ${chartData.market_data?.length || 0} candles, ${chartData.trades?.length || 0} trades
+                </div>
+            `;
+            
+            updateConnectionStatus('connected');
+            
+        } catch (error) {
+            console.error('Error loading strategy data:', error);
+            
+            document.getElementById('chartStatus').innerHTML = `
+                <div class="text-danger text-center">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    Error loading chart data: ${error.message}
+                </div>
+            `;
+            
+            updateConnectionStatus('error');
+            showToast('Failed to load chart data: ' + error.message, 'error');
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    async function fetchIndicators(strategyId) {
+        try {
+            // Fetch indicator data from API
+            const response = await fetch(`/api/v1/statistics/strategies/${strategyId}/indicators`);
+            if (response.ok) {
+                return await response.json();
+            }
+        } catch (error) {
+            console.warn('Indicators not available:', error);
+        }
+        return {};
+    }
+
+    async function fetchPerformanceData(strategyId) {
+        try {
+            const response = await apiClient.get(`/api/v1/statistics/strategies/${strategyId}/performance`);
+            return response.data || [];
+        } catch (error) {
+            console.warn('Performance data not available:', error);
+            return [];
+        }
+    }
+
+    function updateStatistics(statsResponse, trades) {
+        const stats = statsResponse?.data || {};
+        const performance = stats.performance || {};
+        const trading = stats.trading || {};
+        
+        // Update trade statistics
+        document.getElementById('totalTrades').textContent = performance.total_trades || 0;
+        document.getElementById('winRate').textContent = formatPercentage(performance.win_rate || 0);
+        document.getElementById('totalPnL').textContent = formatCurrency(performance.total_return || 0);
+        document.getElementById('sharpeRatio').textContent = (performance.sharpe_ratio || 0).toFixed(2);
+        
+        // Update risk metrics
+        document.getElementById('maxDrawdown').textContent = formatPercentage(performance.max_drawdown || 0);
+        document.getElementById('volatility').textContent = formatPercentage(performance.volatility || 0);
+        document.getElementById('avgTrade').textContent = formatCurrency(performance.avg_trade || 0);
+        document.getElementById('profitFactor').textContent = (performance.profit_factor || 0).toFixed(2);
+        
+        // Update P&L color
+        const totalPnL = performance.total_return || 0;
+        const pnlElement = document.getElementById('totalPnL');
+        pnlElement.className = `metric-value ${totalPnL >= 0 ? 'text-success' : 'text-danger'}`;
+        
+        // Update trade distribution chart
+        const winningTrades = trades.filter(t => (t.pnl || 0) > 0).length;
+        const losingTrades = trades.filter(t => (t.pnl || 0) < 0).length;
+        
+        tradeDistributionChart.data.datasets[0].data = [winningTrades, losingTrades];
+        tradeDistributionChart.update();
+    }
+
+    function updateRecentTradesTable(trades) {
+        const tbody = document.getElementById('recentTradesBody');
+        
+        if (!trades || trades.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="text-center text-muted py-4">
+                        <i class="fas fa-info-circle me-1"></i>
+                        No trades available for this strategy
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        // Sort trades by timestamp (newest first)
+        const sortedTrades = trades.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        tbody.innerHTML = sortedTrades.slice(0, 10).map(trade => {
+            const pnl = parseFloat(trade.pnl || 0);
+            const pnlClass = pnl > 0 ? 'text-success' : pnl < 0 ? 'text-danger' : 'text-muted';
+            const sideClass = trade.side.toLowerCase() === 'buy' ? 'text-success' : 'text-danger';
+            const sideIcon = trade.side.toLowerCase() === 'buy' ? 'fa-arrow-up' : 'fa-arrow-down';
+            
+            return `
+                <tr>
+                    <td><small>${formatDateTime(trade.timestamp)}</small></td>
+                    <td><strong>${trade.symbol || 'BTC/USDT'}</strong></td>
+                    <td>
+                        <span class="${sideClass}">
+                            <i class="fas ${sideIcon} me-1"></i>
+                            ${trade.side.toUpperCase()}
+                        </span>
+                    </td>
+                    <td>${parseFloat(trade.size || 0).toFixed(4)}</td>
+                    <td>${formatCurrency(trade.price)}</td>
+                    <td class="${pnlClass}">
+                        ${pnl !== 0 ? (pnl > 0 ? '+' : '') + formatCurrency(pnl) : '-'}
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="highlightTradeOnChart('${trade.id}')">
+                            <i class="fas fa-crosshairs"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function changeTimeframe(timeframe) {
+        currentTimeframe = timeframe;
+        document.getElementById('selectedTimeframe').textContent = timeframe;
+        
+        if (currentStrategy) {
+            loadStrategyData();
+        }
+    }
+
+    function toggleTheme() {
+        currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+        document.getElementById('themeText').textContent = currentTheme === 'light' ? 'Dark Mode' : 'Light Mode';
+        
+        // Apply theme to charts
+        if (mainTradingChart) {
+            mainTradingChart.setTheme(currentTheme);
+        }
+        
+        // Apply theme to page
+        document.body.className = currentTheme === 'dark' ? 'dark-theme' : '';
+    }
+
+    function toggleVolume() {
+        chartOptions.showVolume = !chartOptions.showVolume;
+        document.getElementById('volumeToggle').classList.toggle('btn-outline-secondary', !chartOptions.showVolume);
+        document.getElementById('volumeToggle').classList.toggle('btn-secondary', chartOptions.showVolume);
+        
+        if (mainTradingChart) {
+            mainTradingChart.options.showVolume = chartOptions.showVolume;
+            if (currentStrategy) loadStrategyData();
+        }
+    }
+
+    function toggleIndicators() {
+        chartOptions.showIndicators = !chartOptions.showIndicators;
+        document.getElementById('indicatorsToggle').classList.toggle('btn-outline-secondary', !chartOptions.showIndicators);
+        document.getElementById('indicatorsToggle').classList.toggle('btn-secondary', chartOptions.showIndicators);
+        
+        if (mainTradingChart) {
+            mainTradingChart.options.showIndicators = chartOptions.showIndicators;
+            if (currentStrategy) loadStrategyData();
+        }
+    }
+
+    function toggleTradeMarkers() {
+        chartOptions.showTradeMarkers = !chartOptions.showTradeMarkers;
+        document.getElementById('markersToggle').classList.toggle('btn-outline-secondary', !chartOptions.showTradeMarkers);
+        document.getElementById('markersToggle').classList.toggle('btn-secondary', chartOptions.showTradeMarkers);
+        
+        if (mainTradingChart) {
+            mainTradingChart.options.showTradeMarkers = chartOptions.showTradeMarkers;
+            if (currentStrategy) loadStrategyData();
+        }
+    }
+
+    function refreshCharts() {
+        if (currentStrategy) {
+            loadStrategyData();
+        }
+    }
+
+    function refreshChartsIfVisible() {
+        // Only refresh if page is visible and not loading
+        if (!document.hidden && !document.getElementById('loadingOverlay').style.display && currentStrategy) {
+            loadStrategyData();
+        }
+    }
+
+    function resetZoom() {
+        if (mainTradingChart) {
+            mainTradingChart.resetZoom();
+        }
+    }
+
+    function exportChart() {
+        if (mainTradingChart) {
+            const filename = `${currentStrategyName}-${currentTimeframe}-${new Date().toISOString().split('T')[0]}.png`;
+            mainTradingChart.exportChart(filename);
+            showToast('Chart exported successfully!', 'success');
+        }
+    }
+
+    function exportTrades() {
+        if (!currentStrategy) {
+            showToast('Please select a strategy first', 'warning');
+            return;
+        }
+        
+        // Get recent trades data and convert to CSV
+        const rows = Array.from(document.querySelectorAll('#recentTradesTable tbody tr')).map(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length < 6) return null;
+            
+            return [
+                cells[0].textContent.trim(),
+                cells[1].textContent.trim(),
+                cells[2].textContent.trim(),
+                cells[3].textContent.trim(),
+                cells[4].textContent.trim(),
+                cells[5].textContent.trim()
+            ].join(',');
+        }).filter(row => row !== null);
+        
+        if (rows.length === 0) {
+            showToast('No trades to export', 'warning');
+            return;
+        }
+        
+        const csv = ['Time,Symbol,Side,Size,Price,P&L', ...rows].join('\n');
+        const filename = `${currentStrategyName}-trades-${new Date().toISOString().split('T')[0]}.csv`;
+        
+        downloadFile(filename, csv, 'text/csv');
+        showToast('Trades exported successfully!', 'success');
+    }
+
+    function highlightTradeOnChart(tradeId) {
+        showToast('Trade highlighted on chart', 'info');
+        // TODO: Implement trade highlighting on chart
+    }
+
+    function updateConnectionStatus(status) {
+        const indicator = document.getElementById('connectionIndicator');
+        const statusText = document.getElementById('connectionStatus');
+        
+        switch (status) {
+            case 'connected':
+                indicator.className = 'status-indicator status-running';
+                statusText.textContent = 'Connected';
+                statusText.className = 'text-success';
+                break;
+            case 'disconnected':
+                indicator.className = 'status-indicator status-stopped';
+                statusText.textContent = 'Disconnected';
+                statusText.className = 'text-danger';
+                break;
+            case 'error':
+                indicator.className = 'status-indicator status-degraded';
+                statusText.textContent = 'Error';
+                statusText.className = 'text-warning';
+                break;
+        }
+    }
+
+    function setupWebSocketUpdates() {
+        if (typeof socket !== 'undefined') {
+            socket.on('strategy_update', function(data) {
+                if (data.strategy_id === currentStrategy) {
+                    console.log('Charts: Real-time update received');
+                    // Refresh charts with new data after a short delay
+                    setTimeout(() => {
+                        if (currentStrategy === data.strategy_id) {
+                            loadStrategyData();
+                        }
+                    }, 2000);
+                }
+            });
+            
+            socket.on('connect', function() {
+                updateConnectionStatus('connected');
+            });
+            
+            socket.on('disconnect', function() {
+                updateConnectionStatus('disconnected');
+            });
+        }
+    }
+
+    // Page visibility handling
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && currentStrategy) {
+            // Page became visible, refresh data
+            setTimeout(() => loadStrategyData(), 1000);
+        }
+    });
+</script>
+{% endblock %}

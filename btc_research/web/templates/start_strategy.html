@@ -1,0 +1,553 @@
+{% extends "base.html" %}
+
+{% block title %}Start Strategy - Paper Trading{% endblock %}
+
+{% block page_actions %}
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-1"></i>
+        Back to Dashboard
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-play me-2"></i>
+                    Start New Trading Strategy
+                </h5>
+            </div>
+            
+            <div class="card-body">
+                {% if not configs %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>No Configurations Available</strong><br>
+                        No strategy configurations were found. Please ensure strategy configuration files 
+                        are available in the system before starting a new strategy.
+                    </div>
+                {% else %}
+                    <form method="POST" id="startStrategyForm">
+                        <!-- Configuration Selection -->
+                        <div class="mb-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label for="config_path" class="form-label mb-0">
+                                    <i class="fas fa-cog me-1"></i>
+                                    <strong>Strategy Configuration</strong>
+                                </label>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="refreshConfigs()" id="refreshButton">
+                                    <i class="fas fa-sync-alt me-1"></i>
+                                    Refresh
+                                </button>
+                            </div>
+                            <select class="form-select" id="config_path" name="config_path" required onchange="showConfigDetails(this.value)">
+                                <option value="">Select a strategy configuration...</option>
+                                {% for config in configs %}
+                                    <option value="{{ config.path }}" 
+                                            data-description="{{ config.description or 'No description available' }}"
+                                            data-symbols="{{ config.symbols|join(', ') if config.symbols else 'N/A' }}"
+                                            data-timeframes="{{ config.timeframes|join(', ') if config.timeframes else 'N/A' }}">
+                                        {{ config.name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Choose the trading strategy configuration to execute. Each configuration defines 
+                                the indicators, entry/exit conditions, and risk management rules.
+                                <span class="text-muted">Click "Refresh" to reload configurations after adding/editing files.</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Configuration Details -->
+                        <div id="configDetails" class="mb-4" style="display: none;">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6 class="card-title">
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        Configuration Details
+                                    </h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <p class="mb-2">
+                                                <strong>Description:</strong><br>
+                                                <span id="configDescription" class="text-muted">-</span>
+                                            </p>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <p class="mb-2">
+                                                <strong>Symbols:</strong><br>
+                                                <span id="configSymbols" class="text-muted">-</span>
+                                            </p>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <p class="mb-2">
+                                                <strong>Timeframes:</strong><br>
+                                                <span id="configTimeframes" class="text-muted">-</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Initial Balance -->
+                        <div class="mb-4">
+                            <label for="initial_balance" class="form-label">
+                                <i class="fas fa-dollar-sign me-1"></i>
+                                <strong>Initial Balance (USD)</strong>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" 
+                                       class="form-control" 
+                                       id="initial_balance" 
+                                       name="initial_balance" 
+                                       value="10000" 
+                                       min="100" 
+                                       max="1000000" 
+                                       step="100" 
+                                       required>
+                            </div>
+                            <div class="form-text">
+                                Set the starting balance for paper trading. This determines the maximum capital 
+                                available for the strategy. Recommended range: $1,000 - $100,000.
+                            </div>
+                        </div>
+                        
+                        <!-- Advanced Options -->
+                        <div class="mb-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="showAdvanced" onchange="toggleAdvanced()">
+                                <label class="form-check-label" for="showAdvanced">
+                                    <i class="fas fa-sliders-h me-1"></i>
+                                    Show Advanced Options
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Advanced Options Panel -->
+                        <div id="advancedOptions" style="display: none;">
+                            <div class="card border-info">
+                                <div class="card-header bg-info text-white">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-tools me-1"></i>
+                                        Advanced Configuration
+                                    </h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="max_position_size" class="form-label">Max Position Size (%)</label>
+                                                <input type="number" 
+                                                       class="form-control" 
+                                                       id="max_position_size" 
+                                                       name="max_position_size" 
+                                                       value="10" 
+                                                       min="1" 
+                                                       max="100" 
+                                                       step="1">
+                                                <div class="form-text">Maximum percentage of balance per trade</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="max_drawdown" class="form-label">Max Drawdown (%)</label>
+                                                <input type="number" 
+                                                       class="form-control" 
+                                                       id="max_drawdown" 
+                                                       name="max_drawdown" 
+                                                       value="20" 
+                                                       min="5" 
+                                                       max="50" 
+                                                       step="1">
+                                                <div class="form-text">Stop strategy if drawdown exceeds this limit</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        <strong>Note:</strong> Advanced options override default configuration values. 
+                                        Leave blank to use configuration defaults.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Risk Warning -->
+                        <div class="alert alert-warning mb-4">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>Paper Trading Notice:</strong>
+                            This is a simulated trading environment. No real money will be used or at risk. 
+                            All trades are executed against paper positions with realistic market conditions 
+                            including slippage and commissions.
+                        </div>
+                        
+                        <!-- Pre-flight Checklist -->
+                        <div class="mb-4">
+                            <h6>
+                                <i class="fas fa-check-square me-1"></i>
+                                Pre-flight Checklist
+                            </h6>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="understand_paper" required>
+                                <label class="form-check-label" for="understand_paper">
+                                    I understand this is paper trading with simulated money
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="understand_risks" required>
+                                <label class="form-check-label" for="understand_risks">
+                                    I understand the strategy will execute automatically based on market conditions
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="understand_monitoring" required>
+                                <label class="form-check-label" for="understand_monitoring">
+                                    I will monitor the strategy performance and can stop it at any time
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Submit Buttons -->
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+                                <i class="fas fa-times me-1"></i>
+                                Cancel
+                            </a>
+                            <button type="submit" class="btn btn-success btn-lg" id="submitButton">
+                                <i class="fas fa-rocket me-1"></i>
+                                Start Strategy
+                            </button>
+                        </div>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- System Status Card -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-server me-1"></i>
+                    System Status
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div id="apiStatus" class="mb-2">
+                            <div class="loading-spinner"></div>
+                        </div>
+                        <small class="text-muted">API Server</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div id="dataStatus" class="mb-2">
+                            <div class="loading-spinner"></div>
+                        </div>
+                        <small class="text-muted">Data Feed</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div id="traderStatus" class="mb-2">
+                            <div class="loading-spinner"></div>
+                        </div>
+                        <small class="text-muted">Paper Trader</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div id="strategyCapacity" class="mb-2">
+                            <span class="badge bg-info">0/10</span>
+                        </div>
+                        <small class="text-muted">Strategy Slots</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Check system status
+        checkSystemStatus();
+        
+        // Form validation
+        const form = document.getElementById('startStrategyForm');
+        if (form) {
+            form.addEventListener('submit', handleFormSubmit);
+        }
+        
+        // Initialize tooltips
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    });
+    
+    function showConfigDetails(configPath) {
+        const detailsDiv = document.getElementById('configDetails');
+        const select = document.getElementById('config_path');
+        const selectedOption = select.options[select.selectedIndex];
+        
+        if (configPath && selectedOption) {
+            // Update details
+            document.getElementById('configDescription').textContent = 
+                selectedOption.dataset.description || 'No description available';
+            document.getElementById('configSymbols').textContent = 
+                selectedOption.dataset.symbols || 'N/A';
+            document.getElementById('configTimeframes').textContent = 
+                selectedOption.dataset.timeframes || 'N/A';
+            
+            detailsDiv.style.display = 'block';
+            
+            // Animate in
+            detailsDiv.style.opacity = '0';
+            setTimeout(() => {
+                detailsDiv.style.transition = 'opacity 0.3s ease';
+                detailsDiv.style.opacity = '1';
+            }, 10);
+        } else {
+            detailsDiv.style.display = 'none';
+        }
+    }
+    
+    function toggleAdvanced() {
+        const checkbox = document.getElementById('showAdvanced');
+        const panel = document.getElementById('advancedOptions');
+        
+        if (checkbox.checked) {
+            panel.style.display = 'block';
+            // Animate in
+            panel.style.opacity = '0';
+            setTimeout(() => {
+                panel.style.transition = 'opacity 0.3s ease';
+                panel.style.opacity = '1';
+            }, 10);
+        } else {
+            panel.style.transition = 'opacity 0.3s ease';
+            panel.style.opacity = '0';
+            setTimeout(() => {
+                panel.style.display = 'none';
+            }, 300);
+        }
+    }
+    
+    async function handleFormSubmit(event) {
+        event.preventDefault();
+        
+        const submitButton = document.getElementById('submitButton');
+        const originalText = submitButton.innerHTML;
+        
+        // Show loading state
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starting Strategy...';
+        
+        try {
+            // Validate form
+            if (!validateForm()) {
+                throw new Error('Please fill in all required fields');
+            }
+            
+            // Show confirmation
+            const configSelect = document.getElementById('config_path');
+            const configName = configSelect.options[configSelect.selectedIndex].text;
+            const balance = document.getElementById('initial_balance').value;
+            
+            const confirmed = confirm(
+                `Start trading strategy "${configName}" with $${balance} initial balance?\n\n` +
+                `This will begin automated paper trading based on the selected configuration.`
+            );
+            
+            if (!confirmed) {
+                return;
+            }
+            
+            // Submit form
+            const formData = new FormData(event.target);
+            const response = await fetch(event.target.action, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                // Success - redirect to dashboard
+                showToast('Strategy started successfully! Redirecting to dashboard...', 'success');
+                setTimeout(() => {
+                    window.location.href = '{{ url_for("dashboard") }}';
+                }, 2000);
+            } else {
+                throw new Error('Failed to start strategy');
+            }
+            
+        } catch (error) {
+            console.error('Error starting strategy:', error);
+            showToast(`Error starting strategy: ${error.message}`, 'danger');
+        } finally {
+            // Restore button state
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalText;
+        }
+    }
+    
+    function validateForm() {
+        const configPath = document.getElementById('config_path').value;
+        const initialBalance = document.getElementById('initial_balance').value;
+        const checkboxes = document.querySelectorAll('input[type="checkbox"][required]');
+        
+        if (!configPath) {
+            showToast('Please select a strategy configuration', 'warning');
+            return false;
+        }
+        
+        if (!initialBalance || parseFloat(initialBalance) < 100) {
+            showToast('Please enter a valid initial balance (minimum $100)', 'warning');
+            return false;
+        }
+        
+        for (let checkbox of checkboxes) {
+            if (!checkbox.checked) {
+                showToast('Please complete the pre-flight checklist', 'warning');
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    async function checkSystemStatus() {
+        try {
+            const data = await window.apiClient.getHealth();
+            
+            // Update status indicators
+            updateStatusIndicator('apiStatus', data.status === 'healthy', 'API Server');
+            updateStatusIndicator('dataStatus', data.components?.stream_manager !== 'error', 'Data Feed');
+            updateStatusIndicator('traderStatus', data.components?.paper_trader !== 'error', 'Paper Trader');
+            
+            // Update strategy capacity
+            const activeStrategies = data.active_strategies || 0;
+            const maxStrategies = 10;
+            document.getElementById('strategyCapacity').innerHTML = 
+                `<span class="badge ${activeStrategies < maxStrategies ? 'bg-success' : 'bg-warning'}">${activeStrategies}/${maxStrategies}</span>`;
+            
+        } catch (error) {
+            console.error('Error checking system status:', error);
+            
+            // Show error state
+            updateStatusIndicator('apiStatus', false, 'API Server');
+            updateStatusIndicator('dataStatus', false, 'Data Feed');
+            updateStatusIndicator('traderStatus', false, 'Paper Trader');
+        }
+    }
+    
+    function updateStatusIndicator(elementId, isHealthy, label) {
+        const element = document.getElementById(elementId);
+        
+        if (isHealthy) {
+            element.innerHTML = '<i class="fas fa-check-circle text-success fa-2x"></i>';
+            element.title = `${label}: Healthy`;
+        } else {
+            element.innerHTML = '<i class="fas fa-exclamation-triangle text-danger fa-2x"></i>';
+            element.title = `${label}: Error`;
+        }
+    }
+    
+    // Balance input formatting
+    document.getElementById('initial_balance').addEventListener('input', function(e) {
+        const value = parseFloat(e.target.value);
+        if (value < 100) {
+            e.target.setCustomValidity('Minimum balance is $100');
+        } else if (value > 1000000) {
+            e.target.setCustomValidity('Maximum balance is $1,000,000');
+        } else {
+            e.target.setCustomValidity('');
+        }
+    });
+    
+    // Auto-refresh system status every 30 seconds
+    setInterval(checkSystemStatus, 30000);
+    
+    async function refreshConfigs() {
+        const refreshButton = document.getElementById('refreshButton');
+        const configSelect = document.getElementById('config_path');
+        const originalButtonContent = refreshButton.innerHTML;
+        
+        try {
+            // Show loading state
+            refreshButton.disabled = true;
+            refreshButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Refreshing...';
+            
+            // Call the refresh endpoint
+            const response = await fetch('{{ config.API_BASE_URL }}/api/v1/configs/refresh', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': '{{ config.API_KEY }}'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            // Reload configurations
+            const configsResponse = await fetch('{{ config.API_BASE_URL }}/api/v1/configs/available?_t=' + Date.now(), {
+                headers: {
+                    'X-API-Key': '{{ config.API_KEY }}'
+                }
+            });
+            
+            if (!configsResponse.ok) {
+                throw new Error(`HTTP error! status: ${configsResponse.status}`);
+            }
+            
+            const configsData = await configsResponse.json();
+            
+            // Clear existing options (except the first placeholder)
+            const selectedValue = configSelect.value;
+            configSelect.innerHTML = '<option value="">Select a strategy configuration...</option>';
+            
+            // Add new options
+            if (configsData.configs && configsData.configs.length > 0) {
+                configsData.configs.forEach(config => {
+                    const option = document.createElement('option');
+                    option.value = config.path;
+                    option.textContent = config.name;
+                    option.dataset.description = config.description || 'No description available';
+                    option.dataset.symbols = config.symbols ? config.symbols.join(', ') : 'N/A';
+                    option.dataset.timeframes = config.timeframes ? config.timeframes.join(', ') : 'N/A';
+                    
+                    // Restore previous selection if it still exists
+                    if (config.path === selectedValue) {
+                        option.selected = true;
+                    }
+                    
+                    configSelect.appendChild(option);
+                });
+                
+                // Update config details if a config is selected
+                if (configSelect.value) {
+                    showConfigDetails(configSelect.value);
+                }
+                
+                showToast(`Configuration list refreshed! Found ${configsData.configs.length} configurations.`, 'success');
+            } else {
+                showToast('No configurations found in the directory.', 'warning');
+            }
+            
+        } catch (error) {
+            console.error('Error refreshing configurations:', error);
+            showToast(`Error refreshing configurations: ${error.message}`, 'danger');
+        } finally {
+            // Restore button state
+            refreshButton.disabled = false;
+            refreshButton.innerHTML = originalButtonContent;
+        }
+    }
+</script>
+{% endblock %}

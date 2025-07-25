@@ -1,0 +1,69 @@
+# Mega High Frequency Test Strategy - Maximum Trades
+# Overlapping entry/exit conditions for constant trading
+# THIS IS A TEST STRATEGY - NOT FOR ACTUAL TRADING
+
+version: "2.0"
+name: "Mega High Frequency Test Strategy"
+symbol: "BTC/USDT"
+exchange: "binanceus"
+
+timeframes:
+  entry: "1m"
+  analysis: "1m"
+
+indicators:
+  # Ultra-fast RSI
+  - id: "RSI_2"
+    type: "RSI"
+    timeframe: "1m"
+    length: 2          # Extremely fast RSI for maximum volatility
+  
+  # Fast EMA for price context
+  - id: "EMA_3"
+    type: "EMA"
+    timeframe: "1m"
+    length: 3
+
+# Overlapping conditions that will trigger almost constantly
+logic:
+  # LONG ENTRY - Very wide range, almost always true
+  entry_long:
+    - "RSI_2 < 80"     # RSI below 80 (very frequent)
+
+  # LONG EXIT - Overlapping with short entry for rapid alternation
+  exit_long:
+    - "RSI_2 > 20"     # RSI above 20 (very frequent)
+
+  # SHORT ENTRY - Overlapping with long exit for rapid alternation
+  entry_short:
+    - "RSI_2 > 20"     # RSI above 20 (very frequent)
+
+  # SHORT EXIT - Overlapping with long entry for rapid alternation
+  exit_short:
+    - "RSI_2 < 80"     # RSI below 80 (very frequent)
+
+# Ultra-minimal risk management
+risk_management:
+  position_size:
+    base_size: 0.003   # Tiny 0.3% position size for absolute maximum trades
+  
+  stop_loss:
+    base_percent: 0.0005  # Microscopic 0.05% stop loss
+  
+  take_profit:
+    base_percent: 0.001   # Microscopic 0.1% profit target
+
+backtest:
+  cash: 10000
+  commission: 0.001
+  from: "2025-06-01"
+  to: "2025-07-1"
+
+optimization:
+  parameters:
+    - name: "RSI_2.length"
+      type: "integer"
+      low: 2
+      high: 4
+      default: 2
+      step: 1

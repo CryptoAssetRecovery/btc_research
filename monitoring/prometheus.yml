@@ -1,0 +1,63 @@
+# Prometheus configuration for BTC Research Paper Trading System
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Rule files for alerting
+rule_files:
+  - "rules/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # API Server monitoring
+  - job_name: 'btc-api-server'
+    static_configs:
+      - targets: ['api-server:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Paper Trader monitoring
+  - job_name: 'btc-paper-trader'
+    static_configs:
+      - targets: ['paper-trader:9091']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+
+  # Dashboard monitoring
+  - job_name: 'btc-dashboard'
+    static_configs:
+      - targets: ['dashboard:5000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Redis monitoring
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    metrics_path: '/metrics'
+
+  # PostgreSQL monitoring (using postgres_exporter)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    metrics_path: '/metrics'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Storage configuration
+storage:
+  tsdb:
+    retention.time: 30d
+    retention.size: 10GB

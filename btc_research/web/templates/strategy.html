@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+
+{% block title %}Strategy {{ strategy_id[:12] }}... - Paper Trading{% endblock %}
+
+{% block page_actions %}
+    {% if strategy.status == 'running' %}
+        <form method="POST" action="{{ url_for('stop_strategy', strategy_id=strategy_id) }}" 
+              style="display: inline;" 
+              onsubmit="return confirm('Are you sure you want to stop this strategy?')">
+            <button type="submit" class="btn btn-danger">
+                <i class="fas fa-stop me-1"></i>
+                Stop Strategy
+            </button>
+        </form>
+    {% endif %}
+    <button onclick="location.reload()" class="btn btn-outline-secondary">
+        <i class="fas fa-sync-alt me-1"></i>
+        Refresh
+    </button>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary">
+        <i class="fas fa-arrow-left me-1"></i>
+        Back to Dashboard
+    </a>
+{% endblock %}
+
+{% block content %}
+<!-- Strategy Header -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h3 class="mb-1">
+                            <i class="fas fa-robot me-2"></i>
+                            {{ strategy.name or strategy_id }}
+                        </h3>
+                        <p class="text-muted mb-2">
+                            <strong>Configuration:</strong> 
+                            {{ strategy.config_path.split('/')[-1] if strategy.config_path else 'Unknown' }}
+                        </p>
+                        <p class="text-muted mb-0">
+                            <strong>Started:</strong> {{ strategy.created_at|datetime if strategy.created_at else 'N/A' }}
+                            <span class="ms-3">
+                                <strong>Last Updated:</strong> {{ strategy.updated_at|datetime if strategy.updated_at else 'N/A' }}
+                            </span>
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-md-end">
+                        <h4>
+                            <span class="badge 
+                                {% if strategy.status == 'running' %}bg-success
+                                {% elif strategy.status == 'stopped' %}bg-danger
+                                {% else %}bg-warning{% endif %} fs-6">
+                                <i class="fas fa-circle status-indicator 
+                                   {% if strategy.status == 'running' %}status-running
+                                   {% elif strategy.status == 'stopped' %}status-stopped
+                                   {% else %}status-degraded{% endif %}"></i>
+                                {{ strategy.status|title }}
+                            </span>
+                        </h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Performance Metrics -->
+{% if stats %}
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value 
+                        {% if stats.trading and stats.trading.total_equity %}
+                            {% if stats.trading.total_equity >= stats.trading.initial_balance %}text-success
+                            {% else %}text-danger{% endif %}
+                        {% else %}text-info{% endif %}" id="total-equity">
+                        {{ stats.trading.total_equity|currency if stats.trading else '$0.00' }}
+                    </div>
+                    <div class="metric-label">Total Equity</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value 
+                        {% if stats.performance and stats.performance.total_return %}
+                            {% if stats.performance.total_return >= 0 %}text-success{% else %}text-danger{% endif %}
+                        {% else %}text-info{% endif %}" id="total-return">
+                        {{ stats.performance.total_return|currency if stats.performance else '$0.00' }}
+                    </div>
+                    <div class="metric-label">Total Return</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value text-info" id="total-trades">
+                        {{ stats.performance.total_trades if stats.performance else 0 }}
+                    </div>
+                    <div class="metric-label">Total Trades</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value 
+                        {% if stats.performance and stats.performance.win_rate %}
+                            {% if stats.performance.win_rate >= 50 %}text-success{% else %}text-warning{% endif %}
+                        {% else %}text-info{% endif %}" id="win-rate">
+                        {{ stats.performance.win_rate|percentage if stats.performance else '0.00%' }}
+                    </div>
+                    <div class="metric-label">Win Rate</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Metrics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value text-info" id="sharpe-ratio">
+                        {{ "%.2f"|format(stats.performance.sharpe_ratio) if stats.performance and stats.performance.sharpe_ratio else 'N/A' }}
+                    </div>
+                    <div class="metric-label">Sharpe Ratio</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value text-danger">
+                        {{ stats.performance.max_drawdown|percentage if stats.performance and stats.performance.max_drawdown else '0.00%' }}
+                    </div>
+                    <div class="metric-label">Max Drawdown</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value text-info">
+                        {{ "%.2f"|format(stats.performance.profit_factor) if stats.performance and stats.performance.profit_factor else 'N/A' }}
+                    </div>
+                    <div class="metric-label">Profit Factor</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <div class="metric-value text-info">
+                        {{ stats.performance.signals_generated if stats.performance else 0 }}
+                    </div>
+                    <div class="metric-label">Signals Generated</div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+<!-- Current Positions -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-pie me-2"></i>
+                    Current Positions
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if positions %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Size</th>
+                                    <th>Avg Price</th>
+                                    <th>Current Price</th>
+                                    <th>Unrealized P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for position in positions %}
+                                    <tr>
+                                        <td><strong>{{ position.symbol }}</strong></td>
+                                        <td>{{ "%.6f"|format(position.size) }}</td>
+                                        <td>{{ position.average_price|currency }}</td>
+                                        <td>{{ position.current_price|currency if position.current_price else 'N/A' }}</td>
+                                        <td class="{% if position.unrealized_pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                            {{ position.unrealized_pnl|currency }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-chart-pie fa-2x mb-2"></i>
+                        <br>
+                        No open positions
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Stats -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Strategy Details
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <small class="text-muted text-uppercase">Strategy ID:</small><br>
+                        <span class="fw-bold" style="word-break: break-all;">{{ strategy_id }}</span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted text-uppercase">Initial Balance:</small><br>
+                        <span class="fw-bold">
+                            {{ stats.trading.initial_balance|currency if stats and stats.trading else '$10,000.00' }}
+                        </span>
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-6">
+                        <small class="text-muted text-uppercase">Available Balance:</small><br>
+                        <span class="fw-bold">
+                            {{ stats.trading.available_balance|currency if stats and stats.trading else '$0.00' }}
+                        </span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted text-uppercase">Winning Trades:</small><br>
+                        <span class="fw-bold text-success">
+                            {{ stats.performance.winning_trades if stats and stats.performance else 0 }}
+                        </span>
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-6">
+                        <small class="text-muted text-uppercase">Losing Trades:</small><br>
+                        <span class="fw-bold text-danger">
+                            {{ stats.performance.losing_trades if stats and stats.performance else 0 }}
+                        </span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted text-uppercase">Commission Paid:</small><br>
+                        <span class="fw-bold text-warning">
+                            {{ stats.trading.total_commissions|currency if stats and stats.trading else '$0.00' }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Trades -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-exchange-alt me-2"></i>
+                    Recent Trades
+                </h5>
+                <a href="{{ url_for('trades', strategy_id=strategy_id) }}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-history me-1"></i>
+                    View All Trades
+                </a>
+            </div>
+            <div class="card-body">
+                {% if trades %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Size</th>
+                                    <th>Price</th>
+                                    <th>Value</th>
+                                    <th>Commission</th>
+                                    <th>P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for trade in trades[:10] %}
+                                    <tr>
+                                        <td>{{ trade.timestamp|datetime }}</td>
+                                        <td><strong>{{ trade.symbol }}</strong></td>
+                                        <td>
+                                            <span class="badge {% if trade.side|lower == 'buy' %}bg-success{% else %}bg-danger{% endif %}">
+                                                {{ trade.side|upper }}
+                                            </span>
+                                        </td>
+                                        <td>{{ "%.6f"|format(trade.size) }}</td>
+                                        <td>{{ trade.price|currency }}</td>
+                                        <td>{{ (trade.size * trade.price)|currency }}</td>
+                                        <td class="text-warning">{{ trade.commission|currency }}</td>
+                                        <td class="{% if trade.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                            {{ trade.pnl|currency if trade.pnl else 'N/A' }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-exchange-alt fa-2x mb-2"></i>
+                        <br>
+                        No trades executed yet
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Strategy detail page specific JavaScript
+    document.addEventListener('DOMContentLoaded', function() {
+        // Subscribe to strategy updates
+        if (typeof socket !== 'undefined') {
+            socket.emit('subscribe_strategy', { strategy_id: '{{ strategy_id }}' });
+            
+            socket.on('strategy_update', function(data) {
+                if (data.strategy_id === '{{ strategy_id }}') {
+                    console.log('Strategy detail: Update received', data);
+                    
+                    // Update metrics
+                    updateStrategyDetails(data.stats);
+                    
+                    // Show notification
+                    showToast('Strategy updated with latest data', 'info');
+                }
+            });
+        }
+        
+        // Auto-refresh every 60 seconds if WebSocket is not available
+        if (!socket || !socket.connected) {
+            setInterval(function() {
+                location.reload();
+            }, 60000);
+        }
+    });
+    
+    // Handle stop strategy confirmation
+    const stopForm = document.querySelector('form[action*="/stop-strategy/"]');
+    if (stopForm) {
+        stopForm.addEventListener('submit', function(e) {
+            const strategyName = '{{ strategy.name or strategy_id }}';
+            if (!confirm(`Are you sure you want to stop strategy "${strategyName}"?\n\nThis will close all open positions and stop the strategy execution.`)) {
+                e.preventDefault();
+            }
+        });
+    }
+</script>
+{% endblock %}

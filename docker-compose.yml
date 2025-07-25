@@ -1,0 +1,158 @@
+# Docker Compose for Development
+version: '3.8'
+
+services:
+  # Main paper trading engine
+  paper-trader:
+    build: .
+    container_name: btc-paper-trader
+    command: ["python", "-c", "print('Paper trading engine initialized'); import time; time.sleep(86400)"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://trader:secure_password@postgres:5432/paper_trading
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - CONFIG_DIR=/app/config
+    volumes:
+      - ./btc_research/config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - btc-network
+
+  # FastAPI REST API server
+  api-server:
+    build: .
+    container_name: btc-api-server
+    command: ["uvicorn", "btc_research.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8002:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://trader:secure_password@postgres:5432/paper_trading
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - CONFIG_DIR=/app/config
+    volumes:
+      - ./btc_research/config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+      - paper-trader
+    restart: unless-stopped
+    networks:
+      - btc-network
+
+  # Flask dashboard with hot reload
+  dashboard:
+    build: .
+    container_name: btc-dashboard
+    command: ["python", "-m", "btc_research.web"]
+    ports:
+      - "5001:5000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://trader:secure_password@postgres:5432/paper_trading
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - API_BASE_URL=http://api-server:8000
+      - FRONTEND_API_URL=http://localhost:8002
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=5000
+      - FLASK_DEBUG=true
+      - FLASK_ENV=development
+    volumes:
+      - ./btc_research/web/templates:/app/btc_research/web/templates
+      - ./btc_research/web/static:/app/btc_research/web/static
+      - ./btc_research/web:/app/btc_research/web
+      - ./btc_research/config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - api-server
+    restart: unless-stopped
+    networks:
+      - btc-network
+
+  # Redis for caching and coordination
+  redis:
+    image: redis:7-alpine
+    container_name: btc-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - btc-network
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: btc-postgres
+    environment:
+      - POSTGRES_DB=paper_trading
+      - POSTGRES_USER=trader
+      - POSTGRES_PASSWORD=secure_password
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trader -d paper_trading"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - btc-network
+
+  # Monitoring (optional)
+  monitoring:
+    image: prom/prometheus:latest
+    container_name: btc-monitoring
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - btc-network
+    profiles:
+      - monitoring
+
+# Volumes for data persistence
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+# Networks
+networks:
+  btc-network:
+    driver: bridge

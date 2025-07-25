@@ -1,0 +1,92 @@
+# Production Prometheus configuration for BTC Research Paper Trading System
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    environment: 'production'
+    service: 'btc-research'
+
+# Rule files for alerting
+rule_files:
+  - "rules/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 60s
+
+  # API Server monitoring with high availability
+  - job_name: 'btc-api-server-prod'
+    static_configs:
+      - targets: ['api-server-prod:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+
+  # Paper Trader monitoring with critical alerts
+  - job_name: 'btc-paper-trader-prod'
+    static_configs:
+      - targets: ['paper-trader-prod:9091']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    honor_labels: true
+
+  # Dashboard monitoring
+  - job_name: 'btc-dashboard-prod'
+    static_configs:
+      - targets: ['dashboard-prod:5000']
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+
+  # Redis monitoring with authentication
+  - job_name: 'redis-prod'
+    static_configs:
+      - targets: ['redis-prod:6379']
+    metrics_path: '/metrics'
+    params:
+      auth: ['${REDIS_PASSWORD}']
+
+  # PostgreSQL monitoring
+  - job_name: 'postgres-prod'
+    static_configs:
+      - targets: ['postgres-prod:5432']
+    metrics_path: '/metrics'
+
+  # System monitoring (node_exporter)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Docker container monitoring (cadvisor)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+      timeout: 10s
+
+# Remote write for long-term storage (optional)
+# remote_write:
+#   - url: "https://prometheus-remote-write-endpoint/api/v1/write"
+#     basic_auth:
+#       username: "user"
+#       password: "password"
+
+# Storage configuration
+storage:
+  tsdb:
+    retention.time: 90d
+    retention.size: 50GB
+    wal-compression: true

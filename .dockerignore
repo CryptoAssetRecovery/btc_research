@@ -1,0 +1,100 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation and examples
+docs/
+examples/
+README.md
+*.md
+
+# Test files
+tests/
+test_*.py
+*_test.py
+htmlcov/
+.coverage
+.pytest_cache/
+.tox/
+
+# Scripts
+scripts/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Data files (should be mounted as volumes)
+data/
+*.parquet
+*.csv
+*.json
+*.jsonl
+
+# Configuration (should be mounted or use environment variables)
+.env*
+config/*.yaml
+config/*.yml
+
+# Coverage and profiling
+.coverage
+.profile
+.prof
+
+# Poetry
+# poetry.lock  # Commented out - we need this for Docker builds
