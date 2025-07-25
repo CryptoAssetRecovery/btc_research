@@ -60,6 +60,7 @@ services:
       - ENVIRONMENT=development
       - LOG_LEVEL=DEBUG
       - API_BASE_URL=http://api-server:8000
+      - API_KEY=dev-key-123
       - FRONTEND_API_URL=http://localhost:8002
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=5000

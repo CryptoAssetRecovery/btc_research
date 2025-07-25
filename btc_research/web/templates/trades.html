@@ -3,295 +3,309 @@
 {% block title %}Trade History - Paper Trading{% endblock %}
 
 {% block page_actions %}
-    <div class="btn-group">
-        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
-            <i class="fas fa-filter me-1"></i>
-            Filter
-        </button>
-        <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('trades') }}">All Strategies</a></li>
-            <li><hr class="dropdown-divider"></li>
-            {% for strategy in get_strategies() if get_strategies %}
-                <li>
-                    <a class="dropdown-item" href="{{ url_for('trades', strategy_id=strategy.id) }}">
+    <div class="filter-controls">
+        <div class="filter-dropdown">
+            <button type="button" class="btn btn-secondary" onclick="toggleFilterMenu()">
+                Filter ▼
+            </button>
+            <div class="filter-menu" id="filterMenu">
+                <a href="{{ url_for('trades') }}" class="filter-item">All Strategies</a>
+                {% for strategy in get_strategies() if get_strategies %}
+                    <a href="{{ url_for('trades', strategy_id=strategy.id) }}" class="filter-item">
                         {{ strategy.name or strategy.id[:12] + '...' }}
                     </a>
-                </li>
-            {% endfor %}
-        </ul>
+                {% endfor %}
+            </div>
+        </div>
+        <button onclick="location.reload()" class="btn btn-secondary">
+            Refresh
+        </button>
     </div>
-    <button onclick="location.reload()" class="btn btn-outline-secondary">
-        <i class="fas fa-sync-alt me-1"></i>
-        Refresh
-    </button>
+
+    <style>
+        .filter-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .filter-dropdown {
+            position: relative;
+        }
+
+        .filter-btn {
+            /* Using btn-secondary class instead */
+        }
+
+        .filter-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 180px;
+            background-color: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 0;
+            margin-top: 4px;
+            display: none;
+            z-index: 1000;
+        }
+
+        .filter-menu.show {
+            display: block;
+        }
+
+        .filter-item {
+            display: block;
+            padding: 8px 12px;
+            color: var(--foreground);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .filter-item:hover {
+            background-color: var(--secondary);
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
 <!-- Trade Summary -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value text-info">{{ total_trades }}</div>
-                <div class="metric-label">Total Trades</div>
-            </div>
-        </div>
+<div class="trade-metrics">
+    <div class="metric-card">
+        <div class="metric-value neutral">{{ total_trades }}</div>
+        <div class="metric-label">Total Trades</div>
     </div>
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value text-success">
-                    {{ trades|selectattr('pnl')|selectattr('pnl', '>', 0)|list|length }}
-                </div>
-                <div class="metric-label">Winning Trades</div>
-            </div>
+    <div class="metric-card">
+        <div class="metric-value positive">
+            {{ trades|selectattr('pnl')|selectattr('pnl', '>', 0)|list|length }}
         </div>
+        <div class="metric-label">Winning Trades</div>
     </div>
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value text-danger">
-                    {{ trades|selectattr('pnl')|selectattr('pnl', '<', 0)|list|length }}
-                </div>
-                <div class="metric-label">Losing Trades</div>
-            </div>
+    <div class="metric-card">
+        <div class="metric-value negative">
+            {{ trades|selectattr('pnl')|selectattr('pnl', '<', 0)|list|length }}
         </div>
+        <div class="metric-label">Losing Trades</div>
     </div>
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value 
-                    {% set total_pnl = trades|selectattr('pnl')|map(attribute='pnl')|sum %}
-                    {% if total_pnl > 0 %}text-success{% elif total_pnl < 0 %}text-danger{% else %}text-info{% endif %}">
-                    {{ (trades|selectattr('pnl')|map(attribute='pnl')|sum)|currency }}
-                </div>
-                <div class="metric-label">Total P&L</div>
-            </div>
+    <div class="metric-card">
+        {% set total_pnl = trades|selectattr('pnl')|map(attribute='pnl')|sum %}
+        <div class="metric-value {% if total_pnl > 0 %}positive{% elif total_pnl < 0 %}negative{% else %}neutral{% endif %}">
+            {{ (trades|selectattr('pnl')|map(attribute='pnl')|sum)|currency }}
         </div>
+        <div class="metric-label">Total P&L</div>
     </div>
 </div>
 
+<style>
+    .trade-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+
+    @media (max-width: 768px) {
+        .trade-metrics {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 480px) {
+        .trade-metrics {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
 <!-- Trade Table -->
 <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="card-title mb-0">
-            <i class="fas fa-exchange-alt me-2"></i>
-            Trade History
+    <div class="trade-header">
+        <div class="header-title">
+            <h2>Trade History</h2>
             {% if strategy_id %}
-                <small class="text-muted">(Strategy: {{ strategy_id[:12] }}...)</small>
+                <span class="strategy-filter">Strategy: {{ strategy_id[:12] }}...</span>
             {% endif %}
-        </h5>
-        <div class="d-flex align-items-center">
-            <small class="text-muted me-3">
+        </div>
+        <div class="header-actions">
+            <span class="trade-count">
                 Showing {{ trades|length }} of {{ total_trades }} trades
-            </small>
-            <div class="btn-group btn-group-sm">
-                <button type="button" class="btn btn-outline-secondary" onclick="exportTrades('csv')">
-                    <i class="fas fa-download me-1"></i>
-                    CSV
+            </span>
+            <div class="export-controls">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="exportTrades('csv')">
+                    Export CSV
                 </button>
-                <button type="button" class="btn btn-outline-secondary" onclick="exportTrades('json')">
-                    <i class="fas fa-download me-1"></i>
-                    JSON
+                <button type="button" class="btn btn-secondary btn-sm" onclick="exportTrades('json')">
+                    Export JSON
                 </button>
             </div>
         </div>
     </div>
     
-    <div class="card-body">
-        {% if trades %}
-            <div class="table-responsive">
-                <table class="table table-striped table-hover" id="tradesTable">
-                    <thead>
+    {% if trades %}
+        <div class="table-container">
+            <table class="table" id="tradesTable">
+                <thead>
+                    <tr>
+                        <th>
+                            <button class="sort-btn" onclick="sortTable('timestamp')" type="button">
+                                Time <span class="sort-indicator">↕</span>
+                            </button>
+                        </th>
+                        {% if not strategy_id %}
+                            <th>Strategy</th>
+                        {% endif %}
+                        <th>
+                            <button class="sort-btn" onclick="sortTable('symbol')" type="button">
+                                Symbol <span class="sort-indicator">↕</span>
+                            </button>
+                        </th>
+                        <th>
+                            <button class="sort-btn" onclick="sortTable('side')" type="button">
+                                Side <span class="sort-indicator">↕</span>
+                            </button>
+                        </th>
+                        <th class="numeric">
+                            <button class="sort-btn" onclick="sortTable('size')" type="button">
+                                Size <span class="sort-indicator">↕</span>
+                            </button>
+                        </th>
+                        <th class="numeric">
+                            <button class="sort-btn" onclick="sortTable('price')" type="button">
+                                Price <span class="sort-indicator">↕</span>
+                            </button>
+                        </th>
+                        <th class="numeric">Trade Value</th>
+                        <th class="numeric">Commission</th>
+                        <th class="numeric">
+                            <button class="sort-btn" onclick="sortTable('pnl')" type="button">
+                                P&L <span class="sort-indicator">↕</span>
+                            </button>
+                        </th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trade in trades %}
                         <tr>
-                            <th>
-                                <a href="#" onclick="sortTable('timestamp')" class="text-decoration-none">
-                                    Time <i class="fas fa-sort"></i>
-                                </a>
-                            </th>
-                            {% if not strategy_id %}
-                                <th>Strategy</th>
-                            {% endif %}
-                            <th>
-                                <a href="#" onclick="sortTable('symbol')" class="text-decoration-none">
-                                    Symbol <i class="fas fa-sort"></i>
-                                </a>
-                            </th>
-                            <th>
-                                <a href="#" onclick="sortTable('side')" class="text-decoration-none">
-                                    Side <i class="fas fa-sort"></i>
-                                </a>
-                            </th>
-                            <th>
-                                <a href="#" onclick="sortTable('size')" class="text-decoration-none">
-                                    Size <i class="fas fa-sort"></i>
-                                </a>
-                            </th>
-                            <th>
-                                <a href="#" onclick="sortTable('price')" class="text-decoration-none">
-                                    Price <i class="fas fa-sort"></i>
-                                </a>
-                            </th>
-                            <th>Trade Value</th>
-                            <th>Commission</th>
-                            <th>
-                                <a href="#" onclick="sortTable('pnl')" class="text-decoration-none">
-                                    P&L <i class="fas fa-sort"></i>
-                                </a>
-                            </th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for trade in trades %}
-                            <tr>
-                                <td>
-                                    <span class="fw-bold">{{ trade.timestamp|datetime }}</span>
-                                    {% if trade.timestamp %}
-                                        <br><small class="text-muted">{{ trade.timestamp }}</small>
-                                    {% endif %}
-                                </td>
-                                {% if not strategy_id %}
-                                    <td>
-                                        <a href="{{ url_for('strategy_detail', strategy_id=trade.strategy_id) }}" 
-                                           class="text-decoration-none">
-                                            {{ trade.strategy_name or trade.strategy_id[:12] + '...' }}
-                                        </a>
-                                    </td>
+                            <td>
+                                <div class="timestamp">{{ trade.timestamp|datetime }}</div>
+                                {% if trade.timestamp %}
+                                    <div class="timestamp-raw">{{ trade.timestamp }}</div>
                                 {% endif %}
+                            </td>
+                            {% if not strategy_id %}
                                 <td>
-                                    <strong class="text-primary">{{ trade.symbol }}</strong>
+                                    <a href="{{ url_for('strategy_detail', strategy_id=trade.strategy_id) }}" 
+                                       class="strategy-link">
+                                        {{ trade.strategy_name or trade.strategy_id[:12] + '...' }}
+                                    </a>
                                 </td>
-                                <td>
-                                    <span class="badge 
-                                        {% if trade.side|lower == 'buy' %}bg-success
-                                        {% elif trade.side|lower == 'sell' %}bg-danger
-                                        {% else %}bg-secondary{% endif %}">
-                                        <i class="fas fa-arrow-{% if trade.side|lower == 'buy' %}up{% else %}down{% endif %} me-1"></i>
-                                        {{ trade.side|upper }}
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="fw-bold">{{ "%.6f"|format(trade.size) }}</span>
-                                </td>
-                                <td>
-                                    <span class="fw-bold">{{ trade.price|currency }}</span>
-                                </td>
-                                <td>
-                                    <span class="fw-bold">{{ (trade.size * trade.price)|currency }}</span>
-                                </td>
-                                <td>
-                                    <span class="text-warning fw-bold">{{ trade.commission|currency }}</span>
-                                </td>
-                                <td>
-                                    {% if trade.pnl is not none %}
-                                        <span class="fw-bold {% if trade.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                            {{ trade.pnl|currency }}
-                                            {% if trade.pnl != 0 %}
-                                                ({{ ((trade.pnl / (trade.size * trade.price)) * 100)|round(2) }}%)
-                                            {% endif %}
-                                        </span>
-                                    {% else %}
-                                        <span class="text-muted">N/A</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <div class="btn-group btn-group-sm">
-                                        <button type="button" class="btn btn-outline-info" 
-                                                onclick="showTradeDetails('{{ trade.id if trade.id else loop.index }}')"
-                                                title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        {% if not strategy_id %}
-                                            <a href="{{ url_for('strategy_detail', strategy_id=trade.strategy_id) }}" 
-                                               class="btn btn-outline-primary" title="View Strategy">
-                                                <i class="fas fa-robot"></i>
-                                            </a>
+                            {% endif %}
+                            <td class="symbol">{{ trade.symbol }}</td>
+                            <td>
+                                <span class="trade-side trade-side-{{ trade.side|lower }}">
+                                    {{ trade.side|upper }}
+                                </span>
+                            </td>
+                            <td class="numeric tabular-nums">{{ "%.6f"|format(trade.size) }}</td>
+                            <td class="numeric tabular-nums">{{ trade.price|currency }}</td>
+                            <td class="numeric tabular-nums">{{ (trade.size * trade.price)|currency }}</td>
+                            <td class="numeric tabular-nums commission">{{ trade.commission|currency }}</td>
+                            <td class="numeric tabular-nums">
+                                {% if trade.pnl is not none %}
+                                    <div class="pnl {% if trade.pnl >= 0 %}positive{% else %}negative{% endif %}">
+                                        {{ trade.pnl|currency }}
+                                        {% if trade.pnl != 0 %}
+                                            <div class="pnl-percent">({{ ((trade.pnl / (trade.size * trade.price)) * 100)|round(2) }}%)</div>
                                         {% endif %}
                                     </div>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
+                                {% else %}
+                                    <span class="na">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button type="button" class="btn btn-secondary btn-sm" 
+                                            onclick="showTradeDetails('{{ trade.id if trade.id else loop.index }}')"
+                                            title="View Details">
+                                        Details
+                                    </button>
+                                    {% if not strategy_id %}
+                                        <a href="{{ url_for('strategy_detail', strategy_id=trade.strategy_id) }}" 
+                                           class="btn btn-secondary btn-sm" title="View Strategy">
+                                            Strategy
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
                 </table>
             </div>
             
             <!-- Pagination -->
             {% if total_pages > 1 %}
-                <nav aria-label="Trade history pagination" class="mt-4">
-                    <ul class="pagination justify-content-center">
+                <div class="pagination-container">
+                    <div class="pagination">
                         {% if page > 1 %}
-                            <li class="page-item">
-                                <a class="page-link" href="{{ url_for('trades', page=page-1, limit=limit, strategy_id=strategy_id) }}">
-                                    <i class="fas fa-chevron-left"></i> Previous
-                                </a>
-                            </li>
+                            <a class="pagination-btn" href="{{ url_for('trades', page=page-1, limit=limit, strategy_id=strategy_id) }}">
+                                ← Previous
+                            </a>
                         {% endif %}
                         
-                        {% for p in range(1, total_pages + 1) %}
-                            {% if p == page %}
-                                <li class="page-item active">
-                                    <span class="page-link">{{ p }}</span>
-                                </li>
-                            {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
-                                <li class="page-item">
-                                    <a class="page-link" href="{{ url_for('trades', page=p, limit=limit, strategy_id=strategy_id) }}">{{ p }}</a>
-                                </li>
-                            {% elif p == 4 and page > 6 %}
-                                <li class="page-item disabled">
-                                    <span class="page-link">...</span>
-                                </li>
-                            {% elif p == total_pages - 3 and page < total_pages - 5 %}
-                                <li class="page-item disabled">
-                                    <span class="page-link">...</span>
-                                </li>
-                            {% endif %}
-                        {% endfor %}
+                        <div class="pagination-pages">
+                            {% for p in range(1, total_pages + 1) %}
+                                {% if p == page %}
+                                    <span class="pagination-page active">{{ p }}</span>
+                                {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+                                    <a class="pagination-page" href="{{ url_for('trades', page=p, limit=limit, strategy_id=strategy_id) }}">{{ p }}</a>
+                                {% elif p == 4 and page > 6 %}
+                                    <span class="pagination-ellipsis">...</span>
+                                {% elif p == total_pages - 3 and page < total_pages - 5 %}
+                                    <span class="pagination-ellipsis">...</span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
                         
                         {% if page < total_pages %}
-                            <li class="page-item">
-                                <a class="page-link" href="{{ url_for('trades', page=page+1, limit=limit, strategy_id=strategy_id) }}">
-                                    Next <i class="fas fa-chevron-right"></i>
-                                </a>
-                            </li>
+                            <a class="pagination-btn" href="{{ url_for('trades', page=page+1, limit=limit, strategy_id=strategy_id) }}">
+                                Next →
+                            </a>
                         {% endif %}
-                    </ul>
-                </nav>
+                    </div>
+                </div>
             {% endif %}
             
-        {% else %}
-            <div class="text-center text-muted py-5">
-                <i class="fas fa-exchange-alt fa-4x mb-3"></i>
-                <h4>No Trades Found</h4>
-                <p class="mb-4">
-                    {% if strategy_id %}
-                        This strategy hasn't executed any trades yet.
-                    {% else %}
-                        No trades have been executed across all strategies.
-                    {% endif %}
-                </p>
-                <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
-                    <i class="fas fa-tachometer-alt me-1"></i>
-                    Back to Dashboard
-                </a>
-            </div>
-        {% endif %}
-    </div>
+    {% else %}
+        <div class="empty-state">
+            <h3>No Trades Found</h3>
+            <p>
+                {% if strategy_id %}
+                    This strategy hasn't executed any trades yet.
+                {% else %}
+                    No trades have been executed across all strategies.
+                {% endif %}
+            </p>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
+                Back to Dashboard
+            </a>
+        </div>
+    {% endif %}
 </div>
 
 <!-- Trade Details Modal -->
-<div class="modal fade" id="tradeDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+<div class="modal" id="tradeDetailsModal">
+    <div class="modal-backdrop" onclick="closeModal()"></div>
+    <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="fas fa-exchange-alt me-2"></i>
-                    Trade Details
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <h3>Trade Details</h3>
+                <button type="button" class="modal-close" onclick="closeModal()">×</button>
             </div>
             <div class="modal-body" id="tradeDetailsContent">
-                <div class="text-center">
+                <div class="loading-state">
                     <div class="loading-spinner"></div>
                     <p>Loading trade details...</p>
                 </div>
@@ -301,11 +315,454 @@
 </div>
 {% endblock %}
 
+<!-- Trade-specific styles -->
+<style>
+    /* Trade header */
+    .trade-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding: 16px 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .header-title h2 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 4px 0;
+        color: var(--foreground);
+    }
+
+    .strategy-filter {
+        font-size: 13px;
+        color: var(--muted-foreground);
+    }
+
+    .header-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+    }
+
+    .trade-count {
+        font-size: 13px;
+        color: var(--muted-foreground);
+    }
+
+    .export-controls {
+        display: flex;
+        gap: 8px;
+    }
+
+    /* Table styles */
+    .table-container {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 24px;
+    }
+
+    .table {
+        margin: 0;
+        font-size: 14px;
+    }
+
+    .table th {
+        position: relative;
+        font-size: 13px;
+        padding: 12px 16px;
+        white-space: nowrap;
+    }
+
+    .table th.numeric {
+        text-align: right;
+    }
+
+    .table td {
+        padding: 16px;
+        vertical-align: top;
+    }
+
+    .table td.numeric {
+        text-align: right;
+    }
+
+    /* Sortable headers */
+    .sort-btn {
+        background: none;
+        border: none;
+        color: var(--foreground);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0;
+    }
+
+    .sort-btn:hover {
+        color: var(--info);
+    }
+
+    .sort-indicator {
+        font-size: 12px;
+        color: var(--muted-foreground);
+        transition: color 0.2s ease;
+    }
+
+    .sort-btn.active .sort-indicator {
+        color: var(--info);
+    }
+
+    /* Trade data styles */
+    .tabular-nums {
+        font-variant-numeric: tabular-nums;
+        font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    }
+
+    .timestamp {
+        font-weight: 500;
+        color: var(--foreground);
+        line-height: 1.4;
+    }
+
+    .timestamp-raw {
+        font-size: 12px;
+        color: var(--muted-foreground);
+        margin-top: 2px;
+        font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    }
+
+    .strategy-link {
+        color: var(--info);
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .strategy-link:hover {
+        text-decoration: underline;
+    }
+
+    .symbol {
+        font-weight: 600;
+        color: var(--foreground);
+        font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    }
+
+    .trade-side {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .trade-side-buy {
+        background-color: rgba(34, 197, 94, 0.1);
+        color: var(--success);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+
+    .trade-side-sell {
+        background-color: rgba(239, 68, 68, 0.1);
+        color: var(--danger);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .commission {
+        color: var(--warning);
+    }
+
+    .pnl {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+    }
+
+    .pnl-percent {
+        font-size: 12px;
+        opacity: 0.8;
+    }
+
+    .na {
+        color: var(--muted-foreground);
+        font-style: italic;
+    }
+
+    /* Action buttons */
+    .action-buttons {
+        display: flex;
+        gap: 4px;
+    }
+
+    .action-btn {
+        /* Removed - now using btn-secondary btn-sm classes */
+    }
+
+    /* Pagination */
+    .pagination-container {
+        display: flex;
+        justify-content: center;
+        margin-top: 24px;
+    }
+
+    .pagination {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .pagination-btn {
+        padding: 8px 12px;
+        color: var(--foreground);
+        text-decoration: none;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 14px;
+        transition: all 0.2s ease;
+    }
+
+    .pagination-btn:hover {
+        background-color: var(--secondary);
+    }
+
+    .pagination-pages {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin: 0 8px;
+    }
+
+    .pagination-page {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 32px;
+        height: 32px;
+        color: var(--foreground);
+        text-decoration: none;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: all 0.2s ease;
+    }
+
+    .pagination-page:hover {
+        background-color: var(--secondary);
+        border-color: var(--border);
+    }
+
+    .pagination-page.active {
+        background-color: var(--info);
+        border-color: var(--info);
+        color: white;
+    }
+
+    .pagination-ellipsis {
+        padding: 0 4px;
+        color: var(--muted-foreground);
+    }
+
+    /* Empty state */
+    .empty-state {
+        text-align: center;
+        padding: 48px 24px;
+    }
+
+    .empty-state h3 {
+        font-size: 18px;
+        margin-bottom: 8px;
+        color: var(--foreground);
+    }
+
+    .empty-state p {
+        color: var(--muted-foreground);
+        margin-bottom: 24px;
+        line-height: 1.5;
+    }
+
+    /* Modal */
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal.show {
+        display: flex;
+    }
+
+    .modal-backdrop {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-dialog {
+        position: relative;
+        width: 90%;
+        max-width: 600px;
+        max-height: 90vh;
+        overflow: hidden;
+    }
+
+    .modal-content {
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--foreground);
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 20px;
+        color: var(--muted-foreground);
+        cursor: pointer;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal-close:hover {
+        color: var(--foreground);
+    }
+
+    .modal-body {
+        padding: 20px;
+        max-height: calc(90vh - 100px);
+        overflow-y: auto;
+    }
+
+    .loading-state {
+        text-align: center;
+        padding: 24px;
+    }
+
+    .loading-state p {
+        margin-top: 16px;
+        color: var(--muted-foreground);
+    }
+
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+        .trade-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 16px;
+        }
+
+        .header-actions {
+            align-items: stretch;
+        }
+
+        .export-controls {
+            justify-content: stretch;
+        }
+
+        .export-controls .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .table th,
+        .table td {
+            padding: 8px 12px;
+        }
+
+        .action-buttons {
+            flex-direction: column;
+        }
+
+        .pagination {
+            flex-wrap: wrap;
+            gap: 2px;
+        }
+
+        .pagination-pages {
+            margin: 4px 0;
+        }
+
+        .modal-dialog {
+            width: 95%;
+            margin: 0 auto;
+        }
+    }
+
+    @media (max-width: 600px) {
+        /* Hide some columns on very small screens */
+        .table th:nth-child(n+6),
+        .table td:nth-child(n+6) {
+            display: none;
+        }
+
+        .table th:nth-child(7),
+        .table td:nth-child(7) {
+            display: table-cell; /* Show P&L */
+        }
+
+        .table th:last-child,
+        .table td:last-child {
+            display: table-cell; /* Show actions */
+        }
+    }
+</style>
+
 {% block scripts %}
 <script>
     // Trade history specific JavaScript
     let sortDirection = 'desc';
     let sortColumn = 'timestamp';
+    
+    // Filter menu toggle
+    function toggleFilterMenu() {
+        const menu = document.getElementById('filterMenu');
+        menu.classList.toggle('show');
+    }
+    
+    // Close filter menu when clicking outside
+    document.addEventListener('click', function(event) {
+        const filterDropdown = document.querySelector('.filter-dropdown');
+        const filterMenu = document.getElementById('filterMenu');
+        
+        if (!filterDropdown.contains(event.target)) {
+            filterMenu.classList.remove('show');
+        }
+    });
     
     function sortTable(column) {
         // Simple client-side sorting
@@ -362,45 +819,55 @@
     
     function updateSortIndicators(column, direction) {
         // Reset all sort indicators
-        document.querySelectorAll('th .fas.fa-sort, th .fas.fa-sort-up, th .fas.fa-sort-down')
-            .forEach(icon => {
-                icon.className = 'fas fa-sort';
-            });
+        document.querySelectorAll('.sort-btn').forEach(btn => {
+            btn.classList.remove('active');
+            const indicator = btn.querySelector('.sort-indicator');
+            if (indicator) indicator.textContent = '↕';
+        });
         
         // Update the sorted column indicator
-        const header = document.querySelector(`th a[onclick="sortTable('${column}')"] i`);
-        if (header) {
-            header.className = `fas fa-sort-${direction === 'asc' ? 'up' : 'down'}`;
+        const sortBtn = document.querySelector(`button[onclick="sortTable('${column}')"]`);
+        if (sortBtn) {
+            sortBtn.classList.add('active');
+            const indicator = sortBtn.querySelector('.sort-indicator');
+            if (indicator) {
+                indicator.textContent = direction === 'asc' ? '↑' : '↓';
+            }
         }
     }
     
     function showTradeDetails(tradeId) {
-        const modal = new bootstrap.Modal(document.getElementById('tradeDetailsModal'));
-        modal.show();
+        const modal = document.getElementById('tradeDetailsModal');
+        modal.classList.add('show');
         
         // Here you would typically fetch trade details from the API
         // For now, just show a placeholder
         document.getElementById('tradeDetailsContent').innerHTML = `
-            <div class="row">
-                <div class="col-md-6">
-                    <h6>Trade Information</h6>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                <div>
+                    <h4 style="margin-bottom: 12px; color: var(--foreground);">Trade Information</h4>
                     <p><strong>Trade ID:</strong> ${tradeId}</p>
-                    <p><strong>Status:</strong> <span class="badge bg-success">Executed</span></p>
+                    <p><strong>Status:</strong> <span style="color: var(--success);">Executed</span></p>
                     <p><strong>Order Type:</strong> Market</p>
                 </div>
-                <div class="col-md-6">
-                    <h6>Execution Details</h6>
+                <div>
+                    <h4 style="margin-bottom: 12px; color: var(--foreground);">Execution Details</h4>
                     <p><strong>Slippage:</strong> 0.05%</p>
                     <p><strong>Latency:</strong> 75ms</p>
                     <p><strong>Venue:</strong> Paper Trading</p>
                 </div>
             </div>
-            <hr>
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle me-1"></i>
-                Detailed trade analytics and execution metrics would be displayed here in a production system.
+            <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+                <div class="alert alert-info">
+                    Detailed trade analytics and execution metrics would be displayed here in a production system.
+                </div>
             </div>
         `;
+    }
+    
+    function closeModal() {
+        const modal = document.getElementById('tradeDetailsModal');
+        modal.classList.remove('show');
     }
     
     function exportTrades(format) {
@@ -447,6 +914,16 @@
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
     }
+    
+    // Close modal with escape key
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            const modal = document.getElementById('tradeDetailsModal');
+            if (modal.classList.contains('show')) {
+                closeModal();
+            }
+        }
+    });
     
     // Auto-refresh trades every 2 minutes
     setInterval(function() {

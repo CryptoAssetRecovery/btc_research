@@ -4,274 +4,489 @@
 
 {% block page_actions %}
     <a href="{{ url_for('start_strategy') }}" class="btn btn-primary">
-        <i class="fas fa-plus me-1"></i>
         Start New Strategy
     </a>
-    <button onclick="location.reload()" class="btn btn-outline-secondary">
-        <i class="fas fa-sync-alt me-1"></i>
+    <button onclick="location.reload()" class="btn btn-secondary">
         Refresh
     </button>
 {% endblock %}
 
 {% block content %}
-<!-- System Overview Cards -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value text-primary">{{ strategies|length }}</div>
-                <div class="metric-label">Active Strategies</div>
-            </div>
-        </div>
+<style>
+    /* Dashboard-specific styles following minimal design system */
+    
+    /* Ensure proper button behavior consistency */
+    .btn {
+        cursor: pointer !important;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+    }
+    
+    .btn * {
+        pointer-events: none;
+    }
+    
+    .btn:hover {
+        cursor: pointer !important;
+    }
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+    
+    .metric-card {
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 24px 16px;
+        text-align: center;
+    }
+    
+    .metric-value {
+        font-size: 28px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        margin-bottom: 8px;
+        line-height: 1;
+    }
+    
+    .metric-label {
+        color: var(--muted-foreground);
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 500;
+    }
+    
+    .strategies-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+    
+    .strategy-card {
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+        transition: border-color 0.2s ease;
+    }
+    
+    .strategy-card:hover {
+        border-color: var(--muted-foreground);
+    }
+    
+    .strategy-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .strategy-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--foreground);
+        margin: 0;
+    }
+    
+    .strategy-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted-foreground);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .strategy-body {
+        padding: 16px;
+    }
+    
+    .strategy-info {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+    
+    .info-item {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .info-label {
+        color: var(--muted-foreground);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+    
+    .info-value {
+        color: var(--foreground);
+        font-size: 14px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+    }
+    
+    .strategy-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px 12px;
+        margin-bottom: 16px;
+    }
+    
+    .strategy-footer {
+        padding: 16px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        background-color: var(--secondary);
+    }
+    
+    .last-updated {
+        color: var(--muted-foreground);
+        font-size: 11px;
+        margin-top: 12px;
+    }
+    
+    .loading-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        color: var(--muted-foreground);
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 64px 24px;
+        color: var(--muted-foreground);
+    }
+    
+    .empty-state h3 {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: var(--foreground);
+    }
+    
+    .empty-state p {
+        margin-bottom: 24px;
+        line-height: 1.6;
+    }
+    
+    .activity-section {
+        margin-top: 32px;
+    }
+    
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+    
+    .section-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--foreground);
+    }
+    
+    .activity-table {
+        width: 100%;
+        border-collapse: collapse;
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    
+    .activity-table th {
+        background-color: var(--secondary);
+        padding: 12px;
+        text-align: left;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--foreground);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid var(--border);
+    }
+    
+    .activity-table td {
+        padding: 12px;
+        color: var(--card-foreground);
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+    }
+    
+    .activity-table tr:last-child td {
+        border-bottom: none;
+    }
+    
+    .activity-table a {
+        color: var(--info);
+        text-decoration: none;
+    }
+    
+    .activity-table a:hover {
+        text-decoration: underline;
+    }
+    
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .status-badge.running {
+        background-color: rgba(34, 197, 94, 0.1);
+        color: var(--success);
+    }
+    
+    .status-badge.stopped {
+        background-color: rgba(239, 68, 68, 0.1);
+        color: var(--danger);
+    }
+    
+    .status-badge.degraded {
+        background-color: rgba(245, 158, 11, 0.1);
+        color: var(--warning);
+    }
+    
+    .view-all-btn {
+        text-align: center;
+        margin-top: 16px;
+    }
+    
+    @media (max-width: 768px) {
+        .metrics-grid {
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        }
+        
+        .strategies-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .strategy-info,
+        .strategy-metrics {
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+        
+        .strategy-footer {
+            flex-direction: column;
+            gap: 12px;
+        }
+    }
+</style>
+
+<!-- System Overview Metrics -->
+<div class="metrics-grid">
+    <div class="metric-card">
+        <div class="metric-value neutral">{{ strategies|length }}</div>
+        <div class="metric-label">Active Strategies</div>
     </div>
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value 
-                    {% set total_equity = strategies|selectattr('stats')|map(attribute='stats.trading.total_equity')|sum %}
-                    {% if total_equity > 0 %}text-success{% elif total_equity < 0 %}text-danger{% else %}text-info{% endif %}">
-                    {{ (strategies|selectattr('stats')|map(attribute='stats.trading.total_equity')|sum)|currency }}
-                </div>
-                <div class="metric-label">Total Equity</div>
-            </div>
+    <div class="metric-card">
+        {% set total_equity = strategies|selectattr('stats')|map(attribute='stats.trading.total_equity')|sum %}
+        <div class="metric-value {% if total_equity > 0 %}positive{% elif total_equity < 0 %}negative{% else %}neutral{% endif %}">
+            {{ total_equity|currency if total_equity else '$0.00' }}
         </div>
+        <div class="metric-label">Total Equity</div>
     </div>
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value 
-                    {% set total_pnl = strategies|selectattr('stats')|map(attribute='stats.performance.total_return')|sum %}
-                    {% if total_pnl > 0 %}text-success{% elif total_pnl < 0 %}text-danger{% else %}text-info{% endif %}">
-                    {{ (strategies|selectattr('stats')|map(attribute='stats.performance.total_return')|sum)|currency }}
-                </div>
-                <div class="metric-label">Total P&L</div>
-            </div>
+    <div class="metric-card">
+        {% set total_pnl = strategies|selectattr('stats')|map(attribute='stats.performance.total_return')|sum %}
+        <div class="metric-value {% if total_pnl > 0 %}positive{% elif total_pnl < 0 %}negative{% else %}neutral{% endif %}">
+            {{ total_pnl|currency if total_pnl else '$0.00' }}
         </div>
+        <div class="metric-label">Total P&L</div>
     </div>
-    <div class="col-md-3">
-        <div class="card metric-card">
-            <div class="card-body">
-                <div class="metric-value text-info">
-                    {{ strategies|selectattr('stats')|map(attribute='stats.performance.total_trades')|sum }}
-                </div>
-                <div class="metric-label">Total Trades</div>
-            </div>
+    <div class="metric-card">
+        <div class="metric-value neutral">
+            {{ strategies|selectattr('stats')|map(attribute='stats.trading.total_trades')|sum or 0 }}
         </div>
+        <div class="metric-label">Total Trades</div>
     </div>
 </div>
 
 <!-- Strategy Cards -->
 {% if strategies %}
-    <div class="row">
+    <div class="strategies-grid">
         {% for strategy in strategies %}
-            <div class="col-md-6 col-lg-4 mb-4">
-                <div class="card h-100" data-strategy-id="{{ strategy.id }}">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h6 class="card-title mb-0">
-                            <i class="fas fa-robot me-2"></i>
-                            {{ strategy.name or strategy.id[:12] + '...' }}
-                        </h6>
-                        <span class="badge 
-                            {% if strategy.status == 'running' %}bg-success
-                            {% elif strategy.status == 'stopped' %}bg-danger
-                            {% else %}bg-warning{% endif %}">
-                            <i class="fas fa-circle status-indicator 
-                               {% if strategy.status == 'running' %}status-running
-                               {% elif strategy.status == 'stopped' %}status-stopped
-                               {% else %}status-degraded{% endif %}"></i>
-                            {{ strategy.status|title }}
-                        </span>
+            <div class="strategy-card" data-strategy-id="{{ strategy.id }}">
+                <div class="strategy-header">
+                    <h3 class="strategy-name">{{ strategy.name or strategy.id[:12] + '...' }}</h3>
+                    <div class="strategy-status">
+                        <span class="status-indicator {% if strategy.status == 'running' %}status-running{% elif strategy.status == 'stopped' %}status-stopped{% else %}status-degraded{% endif %}"></span>
+                        {{ strategy.status|title }}
+                    </div>
+                </div>
+                
+                <div class="strategy-body">
+                    <!-- Strategy Information -->
+                    <div class="strategy-info">
+                        <div class="info-item">
+                            <div class="info-label">Config</div>
+                            <div class="info-value">{{ strategy.config_path.split('/')[-1] if strategy.config_path else 'Unknown' }}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Started</div>
+                            <div class="info-value">{{ strategy.created_at|datetime if strategy.created_at else 'N/A' }}</div>
+                        </div>
                     </div>
                     
-                    <div class="card-body">
-                        <!-- Strategy Information -->
-                        <div class="row mb-3">
-                            <div class="col-6">
-                                <small class="text-muted">Config:</small><br>
-                                <span class="fw-bold">{{ strategy.config_path.split('/')[-1] if strategy.config_path else 'Unknown' }}</span>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted">Started:</small><br>
-                                <span class="fw-bold">{{ strategy.created_at|datetime if strategy.created_at else 'N/A' }}</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Performance Metrics -->
-                        {% if strategy.stats %}
-                            <div class="row mb-3">
-                                <div class="col-6">
-                                    <small class="text-muted text-uppercase">Balance:</small><br>
-                                    <span class="fw-bold balance-value">
-                                        {{ strategy.stats.trading.total_equity|currency if strategy.stats.trading else '$0.00' }}
-                                    </span>
-                                </div>
-                                <div class="col-6">
-                                    <small class="text-muted text-uppercase">P&L:</small><br>
-                                    <span class="fw-bold pnl-value 
-                                        {% if strategy.stats.performance and strategy.stats.performance.total_return %}
-                                            {% if strategy.stats.performance.total_return >= 0 %}positive{% else %}negative{% endif %}
-                                        {% else %}neutral{% endif %}">
-                                        {{ strategy.stats.performance.total_return|currency if strategy.stats.performance else '$0.00' }}
-                                    </span>
+                    <!-- Performance Metrics -->
+                    {% if strategy.stats %}
+                        <div class="strategy-metrics">
+                            <div class="info-item">
+                                <div class="info-label">Balance</div>
+                                <div class="info-value balance-value">
+                                    {{ strategy.stats.trading.total_equity|currency if strategy.stats.trading else '$0.00' }}
                                 </div>
                             </div>
-                            
-                            <div class="row mb-3">
-                                <div class="col-6">
-                                    <small class="text-muted text-uppercase">Trades:</small><br>
-                                    <span class="fw-bold">
-                                        {{ strategy.stats.performance.total_trades if strategy.stats.performance else 0 }}
-                                    </span>
-                                </div>
-                                <div class="col-6">
-                                    <small class="text-muted text-uppercase">Win Rate:</small><br>
-                                    <span class="fw-bold">
-                                        {{ strategy.stats.performance.win_rate|percentage if strategy.stats.performance and strategy.stats.performance.win_rate else '0.00%' }}
-                                    </span>
+                            <div class="info-item">
+                                <div class="info-label">P&L</div>
+                                <div class="info-value pnl-value {% if strategy.stats.performance and strategy.stats.performance.total_return %}{% if strategy.stats.performance.total_return >= 0 %}positive{% else %}negative{% endif %}{% else %}neutral{% endif %}">
+                                    {{ strategy.stats.performance.total_return|currency if strategy.stats.performance else '$0.00' }}
                                 </div>
                             </div>
-                            
-                            <!-- Additional Metrics -->
+                            <div class="info-item">
+                                <div class="info-label">Trades</div>
+                                <div class="info-value">
+                                    {{ strategy.stats.trading.total_trades if strategy.stats.trading else 0 }}
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <div class="info-label">Win Rate</div>
+                                <div class="info-value">
+                                    {{ strategy.stats.performance.win_rate|percentage if strategy.stats.performance and strategy.stats.performance.win_rate else '0.00%' }}
+                                </div>
+                            </div>
                             {% if strategy.stats.performance %}
-                                <div class="row mb-3">
-                                    <div class="col-6">
-                                        <small class="text-muted text-uppercase">Sharpe:</small><br>
-                                        <span class="fw-bold">
-                                            {{ "%.2f"|format(strategy.stats.performance.sharpe_ratio) if strategy.stats.performance.sharpe_ratio else 'N/A' }}
-                                        </span>
+                                <div class="info-item">
+                                    <div class="info-label">Sharpe</div>
+                                    <div class="info-value">
+                                        {{ "%.2f"|format(strategy.stats.performance.sharpe_ratio) if strategy.stats.performance.sharpe_ratio else 'N/A' }}
                                     </div>
-                                    <div class="col-6">
-                                        <small class="text-muted text-uppercase">Max DD:</small><br>
-                                        <span class="fw-bold text-danger">
-                                            {{ strategy.stats.performance.max_drawdown|percentage if strategy.stats.performance.max_drawdown else '0.00%' }}
-                                        </span>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Max DD</div>
+                                    <div class="info-value negative">
+                                        {{ strategy.stats.performance.max_drawdown|percentage if strategy.stats.performance.max_drawdown else '0.00%' }}
                                     </div>
                                 </div>
                             {% endif %}
-                        {% else %}
-                            <div class="text-center text-muted">
-                                <div class="loading-spinner"></div>
-                                <small>Loading strategy data...</small>
-                            </div>
-                        {% endif %}
+                        </div>
                         
-                        <!-- Last Updated -->
-                        <div class="mt-2">
-                            <small class="text-muted last-updated">
-                                Updated: {{ strategy.updated_at|datetime if strategy.updated_at else 'Never' }}
-                            </small>
+                        <div class="last-updated">
+                            Updated: {{ strategy.updated_at|datetime if strategy.updated_at else 'Never' }}
                         </div>
-                    </div>
+                    {% else %}
+                        <div class="loading-state">
+                            <div class="loading-spinner"></div>
+                            <div style="margin-top: 8px; font-size: 12px;">Loading strategy data...</div>
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <div class="strategy-footer">
+                    <a href="{{ url_for('strategy_detail', strategy_id=strategy.id) }}" class="btn btn-secondary btn-sm">
+                        <span style="pointer-events: none;">View Details</span>
+                    </a>
                     
-                    <div class="card-footer">
-                        <div class="d-flex justify-content-between">
-                            <a href="{{ url_for('strategy_detail', strategy_id=strategy.id) }}" 
-                               class="btn btn-outline-primary btn-sm">
-                                <i class="fas fa-eye me-1"></i>
-                                View Details
-                            </a>
-                            
-                            {% if strategy.status == 'running' %}
-                                <form method="POST" action="{{ url_for('stop_strategy', strategy_id=strategy.id) }}" 
-                                      style="display: inline;" 
-                                      onsubmit="return confirm('Are you sure you want to stop this strategy?')">
-                                    <button type="submit" class="btn btn-outline-danger btn-sm">
-                                        <i class="fas fa-stop me-1"></i>
-                                        Stop
-                                    </button>
-                                </form>
-                            {% endif %}
-                        </div>
-                    </div>
+                    {% if strategy.status == 'running' %}
+                        <form method="POST" action="{{ url_for('stop_strategy', strategy_id=strategy.id) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to stop this strategy?')">
+                            <button type="submit" class="btn btn-danger btn-sm">
+                                <span style="pointer-events: none;">Stop</span>
+                            </button>
+                        </form>
+                    {% endif %}
                 </div>
             </div>
         {% endfor %}
     </div>
 {% else %}
     <!-- No Strategies State -->
-    <div class="row">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body text-center py-5">
-                    <i class="fas fa-robot fa-4x text-muted mb-3"></i>
-                    <h4 class="text-muted">No Active Strategies</h4>
-                    <p class="text-muted mb-4">
-                        You don't have any active trading strategies running. 
-                        Start your first strategy to begin paper trading.
-                    </p>
-                    <a href="{{ url_for('start_strategy') }}" class="btn btn-primary btn-lg">
-                        <i class="fas fa-plus me-2"></i>
-                        Start Your First Strategy
-                    </a>
-                </div>
-            </div>
+    <div class="card">
+        <div class="empty-state">
+            <h3>No Active Strategies</h3>
+            <p>You don't have any active trading strategies running.<br>Start your first strategy to begin paper trading.</p>
+            <a href="{{ url_for('start_strategy') }}" class="btn btn-primary">
+                <span style="pointer-events: none;">Start Your First Strategy</span>
+            </a>
         </div>
     </div>
 {% endif %}
 
 <!-- Recent Activity -->
 {% if strategies %}
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="fas fa-clock me-2"></i>
-                        Recent Activity
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Strategy</th>
-                                    <th>Activity</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for strategy in strategies|sort(attribute='updated_at', reverse=true) %}
-                                    <tr>
-                                        <td>{{ strategy.updated_at|datetime if strategy.updated_at else 'N/A' }}</td>
-                                        <td>
-                                            <a href="{{ url_for('strategy_detail', strategy_id=strategy.id) }}" 
-                                               class="text-decoration-none">
-                                                {{ strategy.name or strategy.id[:12] + '...' }}
-                                            </a>
-                                        </td>
-                                        <td>
-                                            {% if strategy.status == 'running' %}
-                                                Strategy executing trades
-                                            {% elif strategy.status == 'stopped' %}
-                                                Strategy stopped
-                                            {% else %}
-                                                Strategy status changed
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            <span class="badge 
-                                                {% if strategy.status == 'running' %}bg-success
-                                                {% elif strategy.status == 'stopped' %}bg-danger
-                                                {% else %}bg-warning{% endif %}">
-                                                {{ strategy.status|title }}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div class="text-center mt-3">
-                        <a href="{{ url_for('trades') }}" class="btn btn-outline-primary btn-sm">
-                            <i class="fas fa-history me-1"></i>
-                            View All Trades
-                        </a>
-                    </div>
-                </div>
-            </div>
+    <div class="activity-section">
+        <div class="section-header">
+            <h2 class="section-title">Recent Activity</h2>
+        </div>
+        
+        <table class="activity-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Strategy</th>
+                    <th>Activity</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for strategy in strategies|sort(attribute='updated_at', reverse=true) %}
+                    <tr>
+                        <td style="color: var(--muted-foreground); font-variant-numeric: tabular-nums;">
+                            {{ strategy.updated_at|datetime if strategy.updated_at else 'N/A' }}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('strategy_detail', strategy_id=strategy.id) }}">
+                                {{ strategy.name or strategy.id[:12] + '...' }}
+                            </a>
+                        </td>
+                        <td style="color: var(--muted-foreground);">
+                            {% if strategy.status == 'running' %}
+                                Strategy executing trades
+                            {% elif strategy.status == 'stopped' %}
+                                Strategy stopped
+                            {% else %}
+                                Strategy status changed
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="status-badge {% if strategy.status == 'running' %}running{% elif strategy.status == 'stopped' %}stopped{% else %}degraded{% endif %}">
+                                <span class="status-indicator {% if strategy.status == 'running' %}status-running{% elif strategy.status == 'stopped' %}status-stopped{% else %}status-degraded{% endif %}"></span>
+                                {{ strategy.status|title }}
+                            </span>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <div class="view-all-btn">
+            <a href="{{ url_for('trades') }}" class="btn btn-secondary btn-sm">
+                <span style="pointer-events: none;">View All Trades</span>
+            </a>
         </div>
     </div>
 {% endif %}
@@ -289,11 +504,11 @@
             }
         }, 30000);
         
-        // Add hover effects to strategy cards
+        // Add subtle hover effects to strategy cards
         const strategyCards = document.querySelectorAll('[data-strategy-id]');
         strategyCards.forEach(card => {
             card.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateY(-4px)';
+                this.style.transform = 'translateY(-2px)';
                 this.style.transition = 'transform 0.2s ease';
             });
             
@@ -306,7 +521,7 @@
         const stopForms = document.querySelectorAll('form[action*="/stop-strategy/"]');
         stopForms.forEach(form => {
             form.addEventListener('submit', function(e) {
-                const strategyName = this.closest('.card').querySelector('.card-title').textContent.trim();
+                const strategyName = this.closest('.strategy-card').querySelector('.strategy-name').textContent.trim();
                 if (!confirm(`Are you sure you want to stop "${strategyName}"?`)) {
                     e.preventDefault();
                 }

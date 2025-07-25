@@ -3,260 +3,465 @@
 {% block title %}Advanced Charts - Paper Trading{% endblock %}
 
 {% block page_actions %}
-    <div class="btn-group me-2">
-        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
-            <i class="fas fa-robot me-1"></i>
-            <span id="selectedStrategyName">Select Strategy</span>
-        </button>
-        <ul class="dropdown-menu">
-            {% for strategy in strategies %}
-                <li>
-                    <a class="dropdown-item" href="#" onclick="selectStrategy('{{ strategy.id }}', '{{ strategy.name or strategy.id[:12] + "..." }}')">
-                        <i class="fas fa-chart-line me-2"></i>
-                        {{ strategy.name or strategy.id[:12] + '...' }}
-                        <small class="text-muted d-block">{{ strategy.symbol }} - {{ strategy.status|title }}</small>
-                    </a>
-                </li>
-            {% endfor %}
-        </ul>
-    </div>
-    
-    <div class="btn-group me-2">
-        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
-            <i class="fas fa-clock me-1"></i>
-            <span id="selectedTimeframe">1m</span>
-        </button>
-        <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('1m')">1 Minute</a></li>
-            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('5m')">5 Minutes</a></li>
-            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('15m')">15 Minutes</a></li>
-            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('1h')">1 Hour</a></li>
-            <li><a class="dropdown-item" href="#" onclick="changeTimeframe('1d')">1 Day</a></li>
-        </ul>
-    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+        <!-- Strategy Selection -->
+        <div class="dropdown-container">
+            <button type="button" class="btn btn-secondary dropdown-btn" onclick="toggleDropdown('strategyDropdown')">
+                <span id="selectedStrategyName">Select Strategy</span>
+                <span class="dropdown-arrow">▼</span>
+            </button>
+            <div class="dropdown-menu" id="strategyDropdown">
+                {% for strategy in strategies %}
+                    <div class="dropdown-item" onclick="selectStrategy('{{ strategy.id }}', '{{ strategy.name or strategy.id[:12] + "..." }}')">
+                        <div class="dropdown-item-main">{{ strategy.name or strategy.id[:12] + '...' }}</div>
+                        <div class="dropdown-item-sub">{{ strategy.symbol }} - {{ strategy.status|title }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- Timeframe Selection -->
+        <div class="dropdown-container">
+            <button type="button" class="btn btn-secondary dropdown-btn" onclick="toggleDropdown('timeframeDropdown')">
+                <span id="selectedTimeframe">1m</span>
+                <span class="dropdown-arrow">▼</span>
+            </button>
+            <div class="dropdown-menu" id="timeframeDropdown">
+                <div class="dropdown-item" onclick="changeTimeframe('1m')">1 Minute</div>
+                <div class="dropdown-item" onclick="changeTimeframe('5m')">5 Minutes</div>
+                <div class="dropdown-item" onclick="changeTimeframe('15m')">15 Minutes</div>
+                <div class="dropdown-item" onclick="changeTimeframe('1h')">1 Hour</div>
+                <div class="dropdown-item" onclick="changeTimeframe('1d')">1 Day</div>
+            </div>
+        </div>
 
-    <div class="btn-group me-2">
-        <button type="button" class="btn btn-outline-info" onclick="toggleTheme()">
-            <i class="fas fa-palette me-1"></i>
-            <span id="themeText">Dark Mode</span>
-        </button>
-    </div>
-
-    <div class="btn-group">
-        <button onclick="refreshCharts()" class="btn btn-outline-success">
-            <i class="fas fa-sync-alt me-1"></i>
-            Refresh
-        </button>
-        <button onclick="resetZoom()" class="btn btn-outline-warning">
-            <i class="fas fa-search-minus me-1"></i>
-            Reset Zoom
-        </button>
-        <button onclick="exportChart()" class="btn btn-outline-primary">
-            <i class="fas fa-download me-1"></i>
-            Export
-        </button>
+        <button onclick="refreshCharts()" class="btn btn-secondary">Refresh</button>
+        <button onclick="resetZoom()" class="btn btn-secondary">Reset Zoom</button>
+        <button onclick="exportChart()" class="btn btn-primary">Export</button>
     </div>
 {% endblock %}
 
 {% block content %}
+<style>
+    /* Charts-specific minimal design styles */
+    .chart-status-bar {
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 16px;
+        margin-bottom: 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .chart-status-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .chart-status-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--foreground);
+        margin: 0;
+    }
+    
+    .chart-status-subtitle {
+        font-size: 13px;
+        color: var(--muted-foreground);
+    }
+    
+    .chart-status-right {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-size: 13px;
+    }
+    
+    .last-update {
+        color: var(--muted-foreground);
+    }
+    
+    .connection-info {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .chart-container {
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 24px;
+        overflow: hidden;
+    }
+    
+    .chart-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: var(--secondary);
+    }
+    
+    .chart-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--foreground);
+        margin: 0;
+    }
+    
+    .chart-controls {
+        display: flex;
+        gap: 8px;
+    }
+    
+    .chart-control-btn {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-size: 12px;
+        color: var(--muted-foreground);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .chart-control-btn:hover {
+        background-color: var(--border);
+        color: var(--foreground);
+    }
+    
+    .chart-control-btn.active {
+        background-color: var(--info);
+        color: white;
+        border-color: var(--info);
+    }
+    
+    .chart-body {
+        padding: 16px;
+    }
+    
+    .chart-canvas-container {
+        height: 500px;
+        position: relative;
+        background-color: var(--background);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    
+    .chart-status-message {
+        text-align: center;
+        padding: 40px 20px;
+        color: var(--muted-foreground);
+        font-size: 14px;
+    }
+    
+    .performance-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+    
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    
+    .trade-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px 16px;
+        margin-bottom: 20px;
+    }
+    
+    .dropdown-container {
+        position: relative;
+        display: inline-block;
+    }
+    
+    .dropdown-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: space-between;
+        min-width: 120px;
+    }
+    
+    .dropdown-arrow {
+        font-size: 10px;
+        transition: transform 0.2s ease;
+    }
+    
+    .dropdown-btn.open .dropdown-arrow {
+        transform: rotate(180deg);
+    }
+    
+    .dropdown-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        min-width: 200px;
+        max-height: 300px;
+        overflow-y: auto;
+        z-index: 1000;
+        display: none;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .dropdown-menu.show {
+        display: block;
+    }
+    
+    .dropdown-item {
+        padding: 10px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border);
+        transition: background-color 0.2s ease;
+    }
+    
+    .dropdown-item:last-child {
+        border-bottom: none;
+    }
+    
+    .dropdown-item:hover {
+        background-color: var(--secondary);
+    }
+    
+    .dropdown-item-main {
+        font-size: 14px;
+        color: var(--foreground);
+        font-weight: 500;
+    }
+    
+    .dropdown-item-sub {
+        font-size: 12px;
+        color: var(--muted-foreground);
+        margin-top: 2px;
+    }
+    
+    .volume-profile-container {
+        min-height: 200px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(9, 9, 11, 0.8);
+        z-index: 9999;
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .loading-content {
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 32px;
+        text-align: center;
+        max-width: 300px;
+    }
+    
+    .loading-message {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--foreground);
+        margin-bottom: 8px;
+    }
+    
+    .loading-submessage {
+        font-size: 14px;
+        color: var(--muted-foreground);
+    }
+    
+    @media (max-width: 768px) {
+        .performance-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .metrics-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .trade-stats-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .chart-status-bar {
+            flex-direction: column;
+            gap: 12px;
+            align-items: flex-start;
+        }
+        
+        .chart-status-right {
+            align-self: flex-end;
+        }
+        
+        .chart-canvas-container {
+            height: 350px;
+        }
+    }
+    
+    /* Connection status animations */
+    @keyframes pulse-success {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(1.1); }
+    }
+</style>
+
 <!-- Chart Status Bar -->
-<div class="row mb-3">
-    <div class="col-12">
-        <div class="card border-0 bg-light">
-            <div class="card-body py-2">
-                <div class="row align-items-center">
-                    <div class="col-md-6">
-                        <h6 class="mb-0">
-                            <i class="fas fa-chart-candlestick me-2"></i>
-                            Advanced Trading Charts
-                            <span id="strategyStatus" class="text-muted ms-2">
-                                {% if strategies %}Select a strategy to begin{% else %}No strategies available{% endif %}
-                            </span>
-                        </h6>
-                    </div>
-                    <div class="col-md-6 text-md-end">
-                        <div class="d-flex justify-content-md-end align-items-center">
-                            <div class="me-3">
-                                <small class="text-muted">Last Update:</small>
-                                <span id="lastUpdate" class="fw-bold">Never</span>
-                            </div>
-                            <div class="status-indicator" id="connectionIndicator"></div>
-                            <small id="connectionStatus">Disconnected</small>
-                        </div>
-                    </div>
-                </div>
-            </div>
+<div class="chart-status-bar">
+    <div class="chart-status-left">
+        <h1 class="chart-status-title">Advanced Trading Charts</h1>
+        <span id="strategyStatus" class="chart-status-subtitle">
+            {% if strategies %}Select a strategy to begin{% else %}No strategies available{% endif %}
+        </span>
+    </div>
+    <div class="chart-status-right">
+        <div class="last-update">
+            Last Update: <span id="lastUpdate">Never</span>
+        </div>
+        <div class="connection-info">
+            <span class="status-indicator" id="connectionIndicator"></span>
+            <span id="connectionStatus">Disconnected</span>
         </div>
     </div>
 </div>
 
 <!-- Main Price Chart -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-chart-candlestick me-2"></i>
-                    OHLC Candlestick Chart with Trade Markers
-                </h5>
-                <div class="btn-group btn-group-sm">
-                    <button type="button" class="btn btn-outline-secondary" onclick="toggleVolume()" id="volumeToggle">
-                        <i class="fas fa-bar-chart me-1"></i>
-                        Volume
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary" onclick="toggleIndicators()" id="indicatorsToggle">
-                        <i class="fas fa-line-chart me-1"></i>
-                        Indicators
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary" onclick="toggleTradeMarkers()" id="markersToggle">
-                        <i class="fas fa-map-marker-alt me-1"></i>
-                        Trades
-                    </button>
-                </div>
-            </div>
-            <div class="card-body">
-                <div style="height: 500px; position: relative;">
-                    <canvas id="mainChart"></canvas>
-                </div>
-                <div class="mt-3" id="chartStatus">
-                    <div class="text-center text-muted">
-                        <i class="fas fa-info-circle me-1"></i>
-                        Select a strategy and timeframe to view candlestick chart with trade markers
-                    </div>
-                </div>
+<div class="chart-container">
+    <div class="chart-header">
+        <h2 class="chart-title">OHLC Candlestick Chart with Trade Markers</h2>
+        <div class="chart-controls">
+            <button type="button" class="chart-control-btn" onclick="toggleVolume()" id="volumeToggle">
+                Volume
+            </button>
+            <button type="button" class="chart-control-btn" onclick="toggleIndicators()" id="indicatorsToggle">
+                Indicators
+            </button>
+            <button type="button" class="chart-control-btn" onclick="toggleTradeMarkers()" id="markersToggle">
+                Trades
+            </button>
+        </div>
+    </div>
+    <div class="chart-body">
+        <div class="chart-canvas-container">
+            <canvas id="mainChart"></canvas>
+        </div>
+        <div id="chartStatus">
+            <div class="chart-status-message">
+                Select a strategy and timeframe to view candlestick chart with trade markers
             </div>
         </div>
     </div>
 </div>
 
 <!-- Performance Charts Row -->
-<div class="row mb-4">
+<div class="performance-grid">
     <!-- P&L Chart -->
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-chart-area me-2"></i>
-                    Performance Analysis
-                </h5>
+    <div class="chart-container">
+        <div class="chart-header">
+            <h2 class="chart-title">Performance Analysis</h2>
+        </div>
+        <div class="chart-body">
+            <div style="height: 300px; position: relative; background-color: var(--background); border-radius: 4px; overflow: hidden;">
+                <canvas id="performanceChart"></canvas>
             </div>
-            <div class="card-body">
-                <div style="height: 300px; position: relative;">
-                    <canvas id="performanceChart"></canvas>
-                </div>
-                <div class="mt-3" id="performanceStatus">
-                    <div class="text-center text-muted">
-                        <i class="fas fa-info-circle me-1"></i>
-                        Select a strategy to view performance metrics
-                    </div>
+            <div id="performanceStatus">
+                <div class="chart-status-message">
+                    Select a strategy to view performance metrics
                 </div>
             </div>
         </div>
     </div>
     
     <!-- Trade Statistics -->
-    <div class="col-lg-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-chart-pie me-2"></i>
-                    Trade Statistics
-                </h5>
+    <div class="chart-container">
+        <div class="chart-header">
+            <h2 class="chart-title">Trade Statistics</h2>
+        </div>
+        <div class="chart-body">
+            <div class="trade-stats-grid">
+                <div class="metric-card">
+                    <div class="metric-value neutral" id="totalTrades">0</div>
+                    <div class="metric-label">Total Trades</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value positive" id="winRate">0%</div>
+                    <div class="metric-label">Win Rate</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="totalPnL">$0.00</div>
+                    <div class="metric-label">Total P&L</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value neutral" id="sharpeRatio">0.00</div>
+                    <div class="metric-label">Sharpe Ratio</div>
+                </div>
             </div>
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value text-primary" id="totalTrades">0</div>
-                            <div class="metric-label">Total Trades</div>
-                        </div>
-                    </div>
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value text-success" id="winRate">0%</div>
-                            <div class="metric-label">Win Rate</div>
-                        </div>
-                    </div>
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value" id="totalPnL">$0.00</div>
-                            <div class="metric-label">Total P&L</div>
-                        </div>
-                    </div>
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value text-info" id="sharpeRatio">0.00</div>
-                            <div class="metric-label">Sharpe Ratio</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Trade Distribution Chart -->
-                <div style="height: 120px; position: relative;">
-                    <canvas id="tradeDistributionChart"></canvas>
-                </div>
+            
+            <!-- Trade Distribution Chart -->
+            <div style="height: 120px; position: relative; background-color: var(--background); border-radius: 4px; overflow: hidden;">
+                <canvas id="tradeDistributionChart"></canvas>
             </div>
         </div>
     </div>
 </div>
 
 <!-- Advanced Metrics Row -->
-<div class="row mb-4">
+<div class="metrics-grid">
     <!-- Volume Profile -->
-    <div class="col-lg-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-layer-group me-2"></i>
-                    Volume Profile Analysis
-                </h5>
-            </div>
-            <div class="card-body">
-                <div id="volumeProfileContainer">
-                    <div class="text-center text-muted py-4">
-                        <i class="fas fa-info-circle me-1"></i>
-                        Volume profile data will appear here when available
-                    </div>
+    <div class="chart-container">
+        <div class="chart-header">
+            <h2 class="chart-title">Volume Profile Analysis</h2>
+        </div>
+        <div class="chart-body">
+            <div class="volume-profile-container" id="volumeProfileContainer">
+                <div class="chart-status-message">
+                    Volume profile data will appear here when available
                 </div>
             </div>
         </div>
     </div>
     
     <!-- Risk Metrics -->
-    <div class="col-lg-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-shield-alt me-2"></i>
-                    Risk Analysis
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value text-warning" id="maxDrawdown">0%</div>
-                            <div class="metric-label">Max Drawdown</div>
-                        </div>
-                    </div>
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value text-info" id="volatility">0%</div>
-                            <div class="metric-label">Volatility</div>
-                        </div>
-                    </div>
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value text-secondary" id="avgTrade">$0.00</div>
-                            <div class="metric-label">Avg Trade</div>
-                        </div>
-                    </div>
-                    <div class="col-6 mb-3">
-                        <div class="metric-card">
-                            <div class="metric-value text-secondary" id="profitFactor">0.00</div>
-                            <div class="metric-label">Profit Factor</div>
-                        </div>
-                    </div>
+    <div class="chart-container">
+        <div class="chart-header">
+            <h2 class="chart-title">Risk Analysis</h2>
+        </div>
+        <div class="chart-body">
+            <div class="trade-stats-grid">
+                <div class="metric-card">
+                    <div class="metric-value negative" id="maxDrawdown">0%</div>
+                    <div class="metric-label">Max Drawdown</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value neutral" id="volatility">0%</div>
+                    <div class="metric-label">Volatility</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value neutral" id="avgTrade">$0.00</div>
+                    <div class="metric-label">Avg Trade</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value neutral" id="profitFactor">0.00</div>
+                    <div class="metric-label">Profit Factor</div>
                 </div>
             </div>
         </div>
@@ -264,58 +469,45 @@
 </div>
 
 <!-- Recent Trades Table -->
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-exchange-alt me-2"></i>
-                    Recent Trades
-                </h5>
-                <button class="btn btn-sm btn-outline-primary" onclick="exportTrades()">
-                    <i class="fas fa-download me-1"></i>
-                    Export CSV
-                </button>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover" id="recentTradesTable">
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Symbol</th>
-                                <th>Side</th>
-                                <th>Size</th>
-                                <th>Price</th>
-                                <th>P&L</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recentTradesBody">
-                            <tr>
-                                <td colspan="7" class="text-center text-muted py-4">
-                                    <i class="fas fa-info-circle me-1"></i>
-                                    No trades to display. Select a strategy to view trade history.
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+<div class="chart-container">
+    <div class="chart-header">
+        <h2 class="chart-title">Recent Trades</h2>
+        <button class="btn btn-secondary" onclick="exportTrades()">
+            Export CSV
+        </button>
+    </div>
+    <div class="chart-body" style="padding: 0;">
+        <div style="overflow-x: auto;">
+            <table class="table" id="recentTradesTable">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Size</th>
+                        <th>Price</th>
+                        <th>P&L</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="recentTradesBody">
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 40px 20px; color: var(--muted-foreground);">
+                            No trades to display. Select a strategy to view trade history.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
 <!-- Loading Overlay -->
-<div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999;">
-    <div class="d-flex justify-content-center align-items-center h-100">
-        <div class="card">
-            <div class="card-body text-center">
-                <div class="loading-spinner mb-3"></div>
-                <h5>Loading Chart Data...</h5>
-                <p class="text-muted mb-0" id="loadingMessage">Fetching market data and trade history...</p>
-            </div>
-        </div>
+<div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-message">Loading Chart Data...</div>
+        <div class="loading-submessage" id="loadingMessage">Fetching market data and trade history...</div>
     </div>
 </div>
 {% endblock %}
@@ -343,6 +535,11 @@
 
     document.addEventListener('DOMContentLoaded', function() {
         initializeCharts();
+        
+        // Initialize chart control button states
+        document.getElementById('volumeToggle').classList.toggle('active', chartOptions.showVolume);
+        document.getElementById('indicatorsToggle').classList.toggle('active', chartOptions.showIndicators);
+        document.getElementById('markersToggle').classList.toggle('active', chartOptions.showTradeMarkers);
         
         // Auto-select first strategy if available
         {% if strategies %}
@@ -456,8 +653,7 @@
             document.getElementById('strategyStatus').textContent = `${currentStrategyName} - ${currentTimeframe}`;
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
             document.getElementById('chartStatus').innerHTML = `
-                <div class="text-success text-center">
-                    <i class="fas fa-check-circle me-1"></i>
+                <div class="chart-status-message" style="color: var(--success);">
                     Chart loaded: ${chartData.market_data?.length || 0} candles, ${chartData.trades?.length || 0} trades
                 </div>
             `;
@@ -468,8 +664,7 @@
             console.error('Error loading strategy data:', error);
             
             document.getElementById('chartStatus').innerHTML = `
-                <div class="text-danger text-center">
-                    <i class="fas fa-exclamation-triangle me-1"></i>
+                <div class="chart-status-message" style="color: var(--danger);">
                     Error loading chart data: ${error.message}
                 </div>
             `;
@@ -478,6 +673,18 @@
             showToast('Failed to load chart data: ' + error.message, 'error');
         } finally {
             showLoading(false);
+        }
+    }
+
+    function showLoading(show, message = 'Loading chart data...') {
+        const overlay = document.getElementById('loadingOverlay');
+        const messageEl = document.getElementById('loadingMessage');
+        
+        if (show) {
+            if (messageEl) messageEl.textContent = message;
+            overlay.style.display = 'flex';
+        } else {
+            overlay.style.display = 'none';
         }
     }
 
@@ -540,8 +747,7 @@
         if (!trades || trades.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="text-center text-muted py-4">
-                        <i class="fas fa-info-circle me-1"></i>
+                    <td colspan="7" style="text-align: center; padding: 40px 20px; color: var(--muted-foreground);">
                         No trades available for this strategy
                     </td>
                 </tr>
@@ -554,28 +760,28 @@
         
         tbody.innerHTML = sortedTrades.slice(0, 10).map(trade => {
             const pnl = parseFloat(trade.pnl || 0);
-            const pnlClass = pnl > 0 ? 'text-success' : pnl < 0 ? 'text-danger' : 'text-muted';
-            const sideClass = trade.side.toLowerCase() === 'buy' ? 'text-success' : 'text-danger';
-            const sideIcon = trade.side.toLowerCase() === 'buy' ? 'fa-arrow-up' : 'fa-arrow-down';
+            const pnlColor = pnl > 0 ? 'var(--success)' : pnl < 0 ? 'var(--danger)' : 'var(--muted-foreground)';
+            const sideColor = trade.side.toLowerCase() === 'buy' ? 'var(--success)' : 'var(--danger)';
+            const sideIcon = trade.side.toLowerCase() === 'buy' ? '↑' : '↓';
             
             return `
                 <tr>
-                    <td><small>${formatDateTime(trade.timestamp)}</small></td>
-                    <td><strong>${trade.symbol || 'BTC/USDT'}</strong></td>
+                    <td style="font-size: 13px; color: var(--muted-foreground); font-variant-numeric: tabular-nums;">${formatDateTime(trade.timestamp)}</td>
+                    <td style="font-weight: 600;">${trade.symbol || 'BTC/USDT'}</td>
                     <td>
-                        <span class="${sideClass}">
-                            <i class="fas ${sideIcon} me-1"></i>
+                        <span style="color: ${sideColor}; display: flex; align-items: center; gap: 4px;">
+                            <span>${sideIcon}</span>
                             ${trade.side.toUpperCase()}
                         </span>
                     </td>
-                    <td>${parseFloat(trade.size || 0).toFixed(4)}</td>
-                    <td>${formatCurrency(trade.price)}</td>
-                    <td class="${pnlClass}">
+                    <td style="font-variant-numeric: tabular-nums;">${parseFloat(trade.size || 0).toFixed(4)}</td>
+                    <td style="font-variant-numeric: tabular-nums;">${formatCurrency(trade.price)}</td>
+                    <td style="color: ${pnlColor}; font-variant-numeric: tabular-nums;">
                         ${pnl !== 0 ? (pnl > 0 ? '+' : '') + formatCurrency(pnl) : '-'}
                     </td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="highlightTradeOnChart('${trade.id}')">
-                            <i class="fas fa-crosshairs"></i>
+                        <button class="btn btn-secondary btn-sm" onclick="highlightTradeOnChart('${trade.id}')">
+                            View
                         </button>
                     </td>
                 </tr>
@@ -592,23 +798,11 @@
         }
     }
 
-    function toggleTheme() {
-        currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-        document.getElementById('themeText').textContent = currentTheme === 'light' ? 'Dark Mode' : 'Light Mode';
-        
-        // Apply theme to charts
-        if (mainTradingChart) {
-            mainTradingChart.setTheme(currentTheme);
-        }
-        
-        // Apply theme to page
-        document.body.className = currentTheme === 'dark' ? 'dark-theme' : '';
-    }
 
     function toggleVolume() {
         chartOptions.showVolume = !chartOptions.showVolume;
-        document.getElementById('volumeToggle').classList.toggle('btn-outline-secondary', !chartOptions.showVolume);
-        document.getElementById('volumeToggle').classList.toggle('btn-secondary', chartOptions.showVolume);
+        const btn = document.getElementById('volumeToggle');
+        btn.classList.toggle('active', chartOptions.showVolume);
         
         if (mainTradingChart) {
             mainTradingChart.options.showVolume = chartOptions.showVolume;
@@ -618,8 +812,8 @@
 
     function toggleIndicators() {
         chartOptions.showIndicators = !chartOptions.showIndicators;
-        document.getElementById('indicatorsToggle').classList.toggle('btn-outline-secondary', !chartOptions.showIndicators);
-        document.getElementById('indicatorsToggle').classList.toggle('btn-secondary', chartOptions.showIndicators);
+        const btn = document.getElementById('indicatorsToggle');
+        btn.classList.toggle('active', chartOptions.showIndicators);
         
         if (mainTradingChart) {
             mainTradingChart.options.showIndicators = chartOptions.showIndicators;
@@ -629,14 +823,42 @@
 
     function toggleTradeMarkers() {
         chartOptions.showTradeMarkers = !chartOptions.showTradeMarkers;
-        document.getElementById('markersToggle').classList.toggle('btn-outline-secondary', !chartOptions.showTradeMarkers);
-        document.getElementById('markersToggle').classList.toggle('btn-secondary', chartOptions.showTradeMarkers);
+        const btn = document.getElementById('markersToggle');
+        btn.classList.toggle('active', chartOptions.showTradeMarkers);
         
         if (mainTradingChart) {
             mainTradingChart.options.showTradeMarkers = chartOptions.showTradeMarkers;
             if (currentStrategy) loadStrategyData();
         }
     }
+
+    // Dropdown functionality
+    function toggleDropdown(dropdownId) {
+        const dropdown = document.getElementById(dropdownId);
+        const btn = dropdown.previousElementSibling;
+        
+        // Close all other dropdowns
+        document.querySelectorAll('.dropdown-menu').forEach(menu => {
+            if (menu.id !== dropdownId) {
+                menu.classList.remove('show');
+                menu.previousElementSibling.classList.remove('open');
+            }
+        });
+        
+        // Toggle current dropdown
+        dropdown.classList.toggle('show');
+        btn.classList.toggle('open');
+    }
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('.dropdown-container')) {
+            document.querySelectorAll('.dropdown-menu').forEach(menu => {
+                menu.classList.remove('show');
+                menu.previousElementSibling.classList.remove('open');
+            });
+        }
+    });
 
     function refreshCharts() {
         if (currentStrategy) {
@@ -646,7 +868,8 @@
 
     function refreshChartsIfVisible() {
         // Only refresh if page is visible and not loading
-        if (!document.hidden && !document.getElementById('loadingOverlay').style.display && currentStrategy) {
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        if (!document.hidden && loadingOverlay.style.display === 'none' && currentStrategy) {
             loadStrategyData();
         }
     }
@@ -709,19 +932,25 @@
         
         switch (status) {
             case 'connected':
-                indicator.className = 'status-indicator status-running';
+                indicator.className = 'status-indicator';
+                indicator.style.backgroundColor = 'var(--success)';
+                indicator.style.animation = 'pulse-success 2s infinite';
                 statusText.textContent = 'Connected';
-                statusText.className = 'text-success';
+                statusText.style.color = 'var(--success)';
                 break;
             case 'disconnected':
-                indicator.className = 'status-indicator status-stopped';
+                indicator.className = 'status-indicator';
+                indicator.style.backgroundColor = 'var(--danger)';
+                indicator.style.animation = 'none';
                 statusText.textContent = 'Disconnected';
-                statusText.className = 'text-danger';
+                statusText.style.color = 'var(--danger)';
                 break;
             case 'error':
-                indicator.className = 'status-indicator status-degraded';
+                indicator.className = 'status-indicator';
+                indicator.style.backgroundColor = 'var(--warning)';
+                indicator.style.animation = 'none';
                 statusText.textContent = 'Error';
-                statusText.className = 'text-warning';
+                statusText.style.color = 'var(--warning)';
                 break;
         }
     }

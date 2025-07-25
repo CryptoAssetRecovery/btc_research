@@ -283,14 +283,22 @@ def dashboard():
         strategies = []
     else:
         strategies = strategies_data.get('strategies', [])
-    
-    # Get system health
-    health_data = api_client.get('/health')
-    system_status = 'healthy' if health_data.get('status') == 'healthy' else 'degraded'
+        
+        # Fetch statistics for each strategy
+        for strategy in strategies:
+            try:
+                stats_data = api_client.get(f'/api/v1/strategies/{strategy["id"]}/stats')
+                if 'error' not in stats_data and 'stats' in stats_data:
+                    strategy['stats'] = stats_data['stats']
+                else:
+                    logger.warning(f"Failed to load stats for strategy {strategy['id']}: {stats_data}")
+                    strategy['stats'] = None
+            except Exception as e:
+                logger.error(f"Error fetching stats for strategy {strategy['id']}: {e}")
+                strategy['stats'] = None
     
     return render_template('dashboard.html', 
                          strategies=strategies, 
-                         system_status=system_status,
                          page_title="Dashboard")
 
 
@@ -315,7 +323,7 @@ def strategy_detail(strategy_id: str):
     positions_data = api_client.get(f'/api/v1/statistics/strategies/{strategy_id}/positions')
     
     return render_template('strategy.html',
-                         strategy=strategy_data,
+                         strategy=strategy_data.get('strategy', strategy_data),
                          stats=stats_data,
                          trades=trades_data.get('trades', []),
                          positions=positions_data.get('positions', []),
@@ -588,6 +596,22 @@ def background_updates():
 
 
 # Template context processors
+def get_system_health():
+    """Get system health status."""
+    try:
+        health_data = api_client.get('/health')
+        return 'healthy' if health_data.get('status') == 'healthy' else 'degraded'
+    except Exception as e:
+        logger.error(f"Error fetching system health: {e}")
+        return 'degraded'
+
+
+@app.context_processor
+def inject_system_status():
+    """Make system status available to all templates."""
+    return dict(system_status=get_system_health())
+
+
 @app.context_processor
 def inject_strategies():
     """Make strategies available to all templates."""
