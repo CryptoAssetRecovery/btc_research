@@ -10,6 +10,7 @@ and integration with StreamManager and PaperTrader.
 import asyncio
 import json
 import logging
+import threading
 import time
 import uuid
 import warnings
@@ -59,6 +60,9 @@ class StrategyState:
         # Ensure directory exists
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
+        # Thread safety lock for condition metrics updates
+        self._metrics_lock = threading.Lock()
+        
         # State data
         self.state = {
             'strategy_id': strategy_id,
@@ -76,6 +80,27 @@ class StrategyState:
                 'total_processing_time_ms': 0.0,
                 'avg_processing_time_ms': 0.0,
                 'max_processing_time_ms': 0.0
+            },
+            'condition_metrics': {
+                # High-level counters
+                'entry_long_evaluations': 0,
+                'entry_long_passed': 0,
+                'entry_short_evaluations': 0,
+                'entry_short_passed': 0,
+                'exit_long_evaluations': 0,
+                'exit_long_passed': 0,
+                'exit_short_evaluations': 0,
+                'exit_short_passed': 0,
+                
+                # Rule-level statistics
+                'rule_statistics': {},  # rule_text -> {'passed': int, 'total': int, 'last_result': bool, 'pass_rate': float}
+                
+                # Recent evaluation history (last 50)
+                'recent_evaluations': [],
+                
+                # Performance tracking  
+                'evaluation_times_ms': [],  # Last 100 evaluation times
+                'last_evaluation_timestamp': None
             },
             'error_count': 0,
             'last_error': None,
@@ -106,6 +131,23 @@ class StrategyState:
                 # Merge loaded state with defaults
                 self.state.update(loaded_state)
                 self.state['restart_count'] = self.state.get('restart_count', 0) + 1
+                
+                # Ensure condition_metrics exists for backward compatibility
+                if 'condition_metrics' not in self.state:
+                    self.state['condition_metrics'] = {
+                        'entry_long_evaluations': 0,
+                        'entry_long_passed': 0,
+                        'entry_short_evaluations': 0,
+                        'entry_short_passed': 0,
+                        'exit_long_evaluations': 0,
+                        'exit_long_passed': 0,
+                        'exit_short_evaluations': 0,
+                        'exit_short_passed': 0,
+                        'rule_statistics': {},
+                        'recent_evaluations': [],
+                        'evaluation_times_ms': [],
+                        'last_evaluation_timestamp': None
+                    }
                 
                 logger.info(f"Restored strategy state for {self.strategy_id} (restart #{self.state['restart_count']})")
         
@@ -158,6 +200,155 @@ class StrategyState:
             metrics['max_processing_time_ms'], processing_time_ms
         )
     
+    def record_condition_evaluation(self, condition_type: str, evaluation_result: Dict[str, Any]) -> None:
+        """
+        Record the result of a condition evaluation.
+        
+        Args:
+            condition_type: Type of condition ('entry_long', 'entry_short', 'exit_long', 'exit_short')
+            evaluation_result: Result from evaluate_rules_with_metrics() containing:
+                - overall_passed: bool
+                - evaluation_time_ms: float  
+                - timestamp: str
+                - rules_evaluated: list of rule results
+        """
+        with self._metrics_lock:
+            metrics = self.state['condition_metrics']
+            timestamp = evaluation_result.get('timestamp', datetime.now(UTC).isoformat())
+            
+            # Update high-level counters
+            eval_counter_key = f"{condition_type}_evaluations"
+            pass_counter_key = f"{condition_type}_passed"
+            
+            if eval_counter_key in metrics:
+                metrics[eval_counter_key] += 1
+                if evaluation_result.get('overall_passed', False):
+                    metrics[pass_counter_key] += 1
+            
+            # Update rule-level statistics
+            for rule_result in evaluation_result.get('rules_evaluated', []):
+                rule_text = rule_result.get('rule', '')
+                rule_passed = rule_result.get('passed', False)
+                
+                if rule_text not in metrics['rule_statistics']:
+                    metrics['rule_statistics'][rule_text] = {
+                        'passed': 0,
+                        'total': 0,
+                        'last_result': False,
+                        'pass_rate': 0.0
+                    }
+                
+                rule_stats = metrics['rule_statistics'][rule_text]
+                rule_stats['total'] += 1
+                if rule_passed:
+                    rule_stats['passed'] += 1
+                rule_stats['last_result'] = rule_passed
+                rule_stats['pass_rate'] = rule_stats['passed'] / rule_stats['total']
+            
+            # Add to recent evaluations (keep last 50)
+            evaluation_record = {
+                'timestamp': timestamp,
+                'condition_type': condition_type,
+                'overall_passed': evaluation_result.get('overall_passed', False),
+                'evaluation_time_ms': evaluation_result.get('evaluation_time_ms', 0.0),
+                'rules_count': len(evaluation_result.get('rules_evaluated', []))
+            }
+            
+            metrics['recent_evaluations'].append(evaluation_record)
+            if len(metrics['recent_evaluations']) > 50:
+                metrics['recent_evaluations'] = metrics['recent_evaluations'][-50:]
+            
+            # Track evaluation times (keep last 100)
+            eval_time = evaluation_result.get('evaluation_time_ms', 0.0)
+            metrics['evaluation_times_ms'].append(eval_time)
+            if len(metrics['evaluation_times_ms']) > 100:
+                metrics['evaluation_times_ms'] = metrics['evaluation_times_ms'][-100:]
+            
+            # Update last evaluation timestamp
+            metrics['last_evaluation_timestamp'] = timestamp
+    
+    def get_condition_metrics(self) -> Dict[str, Any]:
+        """
+        Return the full condition metrics dictionary.
+        
+        Returns:
+            Dictionary containing all condition evaluation metrics
+        """
+        with self._metrics_lock:
+            # Return a deep copy to prevent external modifications
+            import copy
+            return copy.deepcopy(self.state['condition_metrics'])
+    
+    def get_condition_summary(self) -> Dict[str, Any]:
+        """
+        Return an API-friendly summary of condition metrics.
+        
+        Returns:
+            Dictionary containing summarized condition metrics for dashboards/APIs
+        """
+        with self._metrics_lock:
+            metrics = self.state['condition_metrics']
+            
+            # Calculate pass rates for each condition type
+            condition_types = ['entry_long', 'entry_short', 'exit_long', 'exit_short']
+            condition_summary = {}
+            
+            for condition_type in condition_types:
+                evaluations = metrics.get(f"{condition_type}_evaluations", 0)
+                passed = metrics.get(f"{condition_type}_passed", 0)
+                pass_rate = (passed / evaluations) if evaluations > 0 else 0.0
+                
+                condition_summary[condition_type] = {
+                    'evaluations': evaluations,
+                    'passed': passed,
+                    'pass_rate': pass_rate
+                }
+            
+            # Calculate average evaluation time
+            eval_times = metrics.get('evaluation_times_ms', [])
+            avg_eval_time = sum(eval_times) / len(eval_times) if eval_times else 0.0
+            max_eval_time = max(eval_times) if eval_times else 0.0
+            
+            # Get recent activity (last 10 evaluations)
+            recent_activity = metrics.get('recent_evaluations', [])[-10:]
+            
+            # Top performing and underperforming rules
+            rule_stats = metrics.get('rule_statistics', {})
+            sorted_rules = sorted(
+                rule_stats.items(), 
+                key=lambda x: (x[1]['pass_rate'], x[1]['total']), 
+                reverse=True
+            )
+            
+            top_rules = sorted_rules[:5] if len(sorted_rules) > 5 else sorted_rules
+            bottom_rules = sorted_rules[-5:] if len(sorted_rules) > 5 else []
+            
+            return {
+                'condition_summary': condition_summary,
+                'performance': {
+                    'avg_evaluation_time_ms': avg_eval_time,
+                    'max_evaluation_time_ms': max_eval_time,
+                    'total_evaluations': sum(metrics.get(f"{ct}_evaluations", 0) for ct in condition_types),
+                    'total_rules_tracked': len(rule_stats)
+                },
+                'recent_activity': recent_activity,
+                'top_performing_rules': [
+                    {
+                        'rule': rule,
+                        'pass_rate': stats['pass_rate'],
+                        'total_evaluations': stats['total']
+                    } for rule, stats in top_rules
+                ],
+                'underperforming_rules': [
+                    {
+                        'rule': rule,
+                        'pass_rate': stats['pass_rate'],
+                        'total_evaluations': stats['total']
+                    } for rule, stats in bottom_rules
+                ],
+                'last_evaluation_timestamp': metrics.get('last_evaluation_timestamp')
+            }
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get comprehensive strategy statistics."""
         return {
@@ -166,6 +357,7 @@ class StrategyState:
             'last_updated': self.state['last_updated'],
             'restart_count': self.state['restart_count'],
             'performance_metrics': self.state['performance_metrics'].copy(),
+            'condition_metrics_summary': self.get_condition_summary(),
             'error_count': self.state['error_count'],
             'last_error': self.state['last_error'],
             'recent_signals': self.state['signal_history'][-10:] if self.state['signal_history'] else []
@@ -571,29 +763,44 @@ class StrategyRunner:
         entry_timeframe = self.config["timeframes"]["entry"]
         symbol = self.config["symbol"]
         
+        logger.info(f"Starting update loop for strategy {self.strategy_name}, monitoring {symbol} on {entry_timeframe}")
+        
+        loop_count = 0
         while not self._stop_event.is_set():
             try:
+                loop_count += 1
+                if loop_count % 60 == 0:  # Log every 60 iterations (roughly every minute)
+                    logger.info(f"Update loop running: iteration {loop_count} for {self.strategy_name}")
+                
                 # Check if we have new data
+                logger.debug(f"Requesting data from StreamManager for {symbol} {entry_timeframe}")
                 current_data = self.stream_manager.get_data(symbol, entry_timeframe, limit=500)
+                
+                logger.debug(f"StreamManager returned {len(current_data)} rows for {symbol} {entry_timeframe}")
                 
                 if len(current_data) == 0:
                     # No data available yet, wait and continue
+                    logger.debug(f"No data available for {symbol} {entry_timeframe}, sleeping 1s")
                     await asyncio.sleep(1.0)
                     continue
                 
                 # Get the latest timestamp
                 latest_timestamp = current_data.index[-1]
+                logger.debug(f"Latest data timestamp: {latest_timestamp}, last processed: {self.last_processed_timestamp}")
                 
                 # Skip if we've already processed this timestamp
                 if (self.last_processed_timestamp is not None and 
                     latest_timestamp <= self.last_processed_timestamp):
+                    logger.debug(f"Skipping - already processed timestamp {latest_timestamp}")
                     await asyncio.sleep(0.1)  # Short sleep to avoid busy waiting
                     continue
                 
                 # Process the update
+                logger.info(f"Processing new data for {symbol} at {latest_timestamp}")
                 start_time = time.time()
                 await self._process_data_update(symbol, current_data)
                 processing_time_ms = (time.time() - start_time) * 1000
+                logger.debug(f"Data processing completed in {processing_time_ms:.2f}ms")
                 
                 # Update statistics
                 self.statistics.record_data_update(processing_time_ms)
@@ -628,32 +835,43 @@ class StrategyRunner:
             # Get all required timeframes
             timeframes_needed = set(ind["timeframe"] for ind in self.config["indicators"])
             timeframes_needed.add(self.config["timeframes"]["entry"])
+            logger.debug(f"Processing data update for {symbol}. Required timeframes: {timeframes_needed}")
             
             # Collect data for all timeframes
             data_by_tf = {}
             for tf in timeframes_needed:
                 tf_data = self.stream_manager.get_data(symbol, tf, limit=500)
+                logger.debug(f"Got {len(tf_data)} rows for {symbol} {tf}")
                 if len(tf_data) == 0:
-                    logger.debug(f"No data available for {symbol} {tf}")
+                    logger.warning(f"No data available for {symbol} {tf} - skipping strategy evaluation")
                     return  # Skip processing if any required timeframe has no data
                 data_by_tf[tf] = tf_data
             
             # Update indicators with live data using Engine pattern
+            logger.debug(f"Updating indicators with data from {len(data_by_tf)} timeframes")
             updated_data = await self._update_indicators_live(data_by_tf)
             
             if len(updated_data) == 0:
-                logger.debug("No indicator data available for signal evaluation")
+                logger.warning("No indicator data available for signal evaluation - indicators failed to compute")
                 return
+            
+            logger.debug(f"Indicators updated successfully, got {len(updated_data)} rows with columns: {list(updated_data.columns)}")
             
             # Get the latest row for evaluation
             latest_row = updated_data.iloc[-1]
             eval_context = latest_row.to_dict()
             
             # Handle NaN values
+            nan_values = []
             for key, value in eval_context.items():
                 if pd.isna(value):
                     eval_context[key] = None
+                    nan_values.append(key)
             
+            if nan_values:
+                logger.warning(f"Found NaN values in evaluation context for: {nan_values}")
+            
+            logger.info(f"Evaluating strategy conditions for {symbol} with context: {list(eval_context.keys())}")
             # Evaluate strategy conditions
             await self._evaluate_strategy_conditions(eval_context, latest_row.name)
             
@@ -795,61 +1013,149 @@ class StrategyRunner:
         
         # Check long entry conditions
         if len(self.strategy_logic.entry_long_rules) > 0:
-            if self.strategy_logic.evaluate_rules(self.strategy_logic.entry_long_rules, eval_context):
-                logger.info(f"Long entry signal detected for {symbol}")
+            # Evaluate rules with metrics collection
+            try:
+                evaluation_result = self.strategy_logic.evaluate_rules_with_metrics(
+                    self.strategy_logic.entry_long_rules, eval_context
+                )
                 
-                # Record signal
-                self.strategy_state.record_signal("entry_long", eval_context)
-                self.statistics.record_signal("entry_long")
-                
-                # Calculate position size (simplified for now)
-                position_size = self._calculate_position_size(eval_context, True)
-                
-                # Submit buy order
+                # Record condition evaluation metrics
                 try:
-                    order = await self.paper_trader.submit_order(
-                        symbol=symbol,
-                        side=OrderSide.BUY,
-                        size=position_size
-                    )
+                    self.strategy_state.record_condition_evaluation("entry_long", evaluation_result)
+                except Exception as metrics_error:
+                    logger.error(f"Failed to record entry_long condition metrics: {metrics_error}")
+                    # Continue with trading logic despite metrics failure
+                
+                # Check if conditions passed
+                if evaluation_result.get('overall_passed', False):
+                    logger.info(f"Long entry signal detected for {symbol}")
                     
-                    logger.info(f"Long entry order submitted: {order.id[:8]} for {position_size} {symbol}")
-                    self.strategy_state.record_order(True)
-                    self.statistics.record_order_result(True)
+                    # Record signal
+                    self.strategy_state.record_signal("entry_long", eval_context)
+                    self.statistics.record_signal("entry_long")
                     
-                except Exception as e:
-                    logger.error(f"Failed to submit long entry order: {e}")
-                    self.strategy_state.record_order(False, str(e))
-                    self.statistics.record_order_result(False, str(e))
+                    # Calculate position size (simplified for now)
+                    position_size = self._calculate_position_size(eval_context, True)
+                    
+                    # Submit buy order
+                    try:
+                        order = await self.paper_trader.submit_order(
+                            symbol=symbol,
+                            side=OrderSide.BUY,
+                            size=position_size
+                        )
+                        
+                        logger.info(f"Long entry order submitted: {order.id[:8]} for {position_size} {symbol}")
+                        self.strategy_state.record_order(True)
+                        self.statistics.record_order_result(True)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to submit long entry order: {e}")
+                        self.strategy_state.record_order(False, str(e))
+                        self.statistics.record_order_result(False, str(e))
+                        
+            except Exception as e:
+                logger.error(f"Error evaluating long entry conditions: {e}")
+                # Fallback to original evaluation method to maintain trading functionality
+                if self.strategy_logic.evaluate_rules(self.strategy_logic.entry_long_rules, eval_context):
+                    logger.info(f"Long entry signal detected for {symbol} (fallback evaluation)")
+                    
+                    # Record signal
+                    self.strategy_state.record_signal("entry_long", eval_context)
+                    self.statistics.record_signal("entry_long")
+                    
+                    # Calculate position size (simplified for now)
+                    position_size = self._calculate_position_size(eval_context, True)
+                    
+                    # Submit buy order
+                    try:
+                        order = await self.paper_trader.submit_order(
+                            symbol=symbol,
+                            side=OrderSide.BUY,
+                            size=position_size
+                        )
+                        
+                        logger.info(f"Long entry order submitted: {order.id[:8]} for {position_size} {symbol}")
+                        self.strategy_state.record_order(True)
+                        self.statistics.record_order_result(True)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to submit long entry order: {e}")
+                        self.strategy_state.record_order(False, str(e))
+                        self.statistics.record_order_result(False, str(e))
         
         # Check short entry conditions
         if len(self.strategy_logic.entry_short_rules) > 0:
-            if self.strategy_logic.evaluate_rules(self.strategy_logic.entry_short_rules, eval_context):
-                logger.info(f"Short entry signal detected for {symbol}")
+            # Evaluate rules with metrics collection
+            try:
+                evaluation_result = self.strategy_logic.evaluate_rules_with_metrics(
+                    self.strategy_logic.entry_short_rules, eval_context
+                )
                 
-                # Record signal
-                self.strategy_state.record_signal("entry_short", eval_context)
-                self.statistics.record_signal("entry_short")
-                
-                # Calculate position size
-                position_size = self._calculate_position_size(eval_context, False)
-                
-                # Submit sell order
+                # Record condition evaluation metrics
                 try:
-                    order = await self.paper_trader.submit_order(
-                        symbol=symbol,
-                        side=OrderSide.SELL,
-                        size=position_size
-                    )
+                    self.strategy_state.record_condition_evaluation("entry_short", evaluation_result)
+                except Exception as metrics_error:
+                    logger.error(f"Failed to record entry_short condition metrics: {metrics_error}")
+                    # Continue with trading logic despite metrics failure
+                
+                # Check if conditions passed
+                if evaluation_result.get('overall_passed', False):
+                    logger.info(f"Short entry signal detected for {symbol}")
                     
-                    logger.info(f"Short entry order submitted: {order.id[:8]} for {position_size} {symbol}")
-                    self.strategy_state.record_order(True)
-                    self.statistics.record_order_result(True)
+                    # Record signal
+                    self.strategy_state.record_signal("entry_short", eval_context)
+                    self.statistics.record_signal("entry_short")
                     
-                except Exception as e:
-                    logger.error(f"Failed to submit short entry order: {e}")
-                    self.strategy_state.record_order(False, str(e))
-                    self.statistics.record_order_result(False, str(e))
+                    # Calculate position size
+                    position_size = self._calculate_position_size(eval_context, False)
+                    
+                    # Submit sell order
+                    try:
+                        order = await self.paper_trader.submit_order(
+                            symbol=symbol,
+                            side=OrderSide.SELL,
+                            size=position_size
+                        )
+                        
+                        logger.info(f"Short entry order submitted: {order.id[:8]} for {position_size} {symbol}")
+                        self.strategy_state.record_order(True)
+                        self.statistics.record_order_result(True)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to submit short entry order: {e}")
+                        self.strategy_state.record_order(False, str(e))
+                        self.statistics.record_order_result(False, str(e))
+                        
+            except Exception as e:
+                logger.error(f"Error evaluating short entry conditions: {e}")
+                # Fallback to original evaluation method to maintain trading functionality
+                if self.strategy_logic.evaluate_rules(self.strategy_logic.entry_short_rules, eval_context):
+                    logger.info(f"Short entry signal detected for {symbol} (fallback evaluation)")
+                    
+                    # Record signal
+                    self.strategy_state.record_signal("entry_short", eval_context)
+                    self.statistics.record_signal("entry_short")
+                    
+                    # Calculate position size
+                    position_size = self._calculate_position_size(eval_context, False)
+                    
+                    # Submit sell order
+                    try:
+                        order = await self.paper_trader.submit_order(
+                            symbol=symbol,
+                            side=OrderSide.SELL,
+                            size=position_size
+                        )
+                        
+                        logger.info(f"Short entry order submitted: {order.id[:8]} for {position_size} {symbol}")
+                        self.strategy_state.record_order(True)
+                        self.statistics.record_order_result(True)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to submit short entry order: {e}")
+                        self.strategy_state.record_order(False, str(e))
+                        self.statistics.record_order_result(False, str(e))
     
     async def _check_exit_conditions(self, eval_context: Dict[str, Any], timestamp: pd.Timestamp, is_long: bool) -> None:
         """Check and execute exit conditions."""
@@ -863,32 +1169,76 @@ class StrategyRunner:
         signal_type = "exit_long" if is_long else "exit_short"
         
         if len(exit_rules) > 0:
-            if self.strategy_logic.evaluate_rules(exit_rules, eval_context):
-                logger.info(f"{signal_type.title()} signal detected for {symbol}")
+            # Evaluate rules with metrics collection
+            try:
+                evaluation_result = self.strategy_logic.evaluate_rules_with_metrics(
+                    exit_rules, eval_context
+                )
                 
-                # Record signal
-                self.strategy_state.record_signal(signal_type, eval_context)
-                self.statistics.record_signal(signal_type)
-                
-                # Submit exit order (opposite side)
-                exit_side = OrderSide.SELL if is_long else OrderSide.BUY
-                position_size = abs(current_position.size)
-                
+                # Record condition evaluation metrics
                 try:
-                    order = await self.paper_trader.submit_order(
-                        symbol=symbol,
-                        side=exit_side,
-                        size=position_size
-                    )
+                    self.strategy_state.record_condition_evaluation(signal_type, evaluation_result)
+                except Exception as metrics_error:
+                    logger.error(f"Failed to record {signal_type} condition metrics: {metrics_error}")
+                    # Continue with trading logic despite metrics failure
+                
+                # Check if conditions passed
+                if evaluation_result.get('overall_passed', False):
+                    logger.info(f"{signal_type.title()} signal detected for {symbol}")
                     
-                    logger.info(f"{signal_type.title()} order submitted: {order.id[:8]} for {position_size} {symbol}")
-                    self.strategy_state.record_order(True)
-                    self.statistics.record_order_result(True)
+                    # Record signal
+                    self.strategy_state.record_signal(signal_type, eval_context)
+                    self.statistics.record_signal(signal_type)
                     
-                except Exception as e:
-                    logger.error(f"Failed to submit {signal_type} order: {e}")
-                    self.strategy_state.record_order(False, str(e))
-                    self.statistics.record_order_result(False, str(e))
+                    # Submit exit order (opposite side)
+                    exit_side = OrderSide.SELL if is_long else OrderSide.BUY
+                    position_size = abs(current_position.size)
+                    
+                    try:
+                        order = await self.paper_trader.submit_order(
+                            symbol=symbol,
+                            side=exit_side,
+                            size=position_size
+                        )
+                        
+                        logger.info(f"{signal_type.title()} order submitted: {order.id[:8]} for {position_size} {symbol}")
+                        self.strategy_state.record_order(True)
+                        self.statistics.record_order_result(True)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to submit {signal_type} order: {e}")
+                        self.strategy_state.record_order(False, str(e))
+                        self.statistics.record_order_result(False, str(e))
+                        
+            except Exception as e:
+                logger.error(f"Error evaluating {signal_type} conditions: {e}")
+                # Fallback to original evaluation method to maintain trading functionality
+                if self.strategy_logic.evaluate_rules(exit_rules, eval_context):
+                    logger.info(f"{signal_type.title()} signal detected for {symbol} (fallback evaluation)")
+                    
+                    # Record signal
+                    self.strategy_state.record_signal(signal_type, eval_context)
+                    self.statistics.record_signal(signal_type)
+                    
+                    # Submit exit order (opposite side)
+                    exit_side = OrderSide.SELL if is_long else OrderSide.BUY
+                    position_size = abs(current_position.size)
+                    
+                    try:
+                        order = await self.paper_trader.submit_order(
+                            symbol=symbol,
+                            side=exit_side,
+                            size=position_size
+                        )
+                        
+                        logger.info(f"{signal_type.title()} order submitted: {order.id[:8]} for {position_size} {symbol}")
+                        self.strategy_state.record_order(True)
+                        self.statistics.record_order_result(True)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to submit {signal_type} order: {e}")
+                        self.strategy_state.record_order(False, str(e))
+                        self.statistics.record_order_result(False, str(e))
     
     def _calculate_position_size(self, eval_context: Dict[str, Any], is_long: bool) -> float:
         """
@@ -1025,6 +1375,28 @@ class StrategyRunner:
         )
         
         return [trade.to_dict() for trade in trades]
+    
+    def get_condition_metrics(self) -> Dict[str, Any]:
+        """
+        Get condition evaluation metrics from the strategy state.
+        
+        Returns:
+            Dictionary containing all condition evaluation metrics
+        """
+        if self.strategy_state:
+            return self.strategy_state.get_condition_metrics()
+        return {}
+    
+    def get_condition_summary(self) -> Dict[str, Any]:
+        """
+        Get condition evaluation summary from the strategy state.
+        
+        Returns:
+            Dictionary containing summarized condition metrics
+        """
+        if self.strategy_state:
+            return self.strategy_state.get_condition_summary()
+        return {}
     
     def __repr__(self) -> str:
         """String representation of the StrategyRunner."""

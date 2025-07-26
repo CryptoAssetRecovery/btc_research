@@ -7,7 +7,9 @@ builds Backtrader strategy classes from YAML configuration logic expressions
 and provides comprehensive performance statistics.
 """
 
+import time
 import warnings
+from datetime import datetime
 from typing import Any, Optional
 
 import backtrader as bt
@@ -126,6 +128,87 @@ class StrategyLogic:
             if self.debug:
                 print(f"Error evaluating rules {rules}: {e}")
             return False
+
+    def evaluate_rules_with_metrics(self, rules: list[str], context: dict[str, Any]) -> dict[str, Any]:
+        """
+        Evaluate a list of logic rules with detailed metrics and timing.
+
+        Args:
+            rules: List of expression strings to evaluate
+            context: Dictionary of variables for evaluation
+
+        Returns:
+            Dictionary containing:
+            - overall_passed: bool - True if ALL rules evaluate to True
+            - evaluation_time_ms: float - Total evaluation time in milliseconds
+            - timestamp: str - ISO formatted timestamp of evaluation
+            - rules_evaluated: list - Detailed results for each rule
+        """
+        start_time = time.perf_counter()
+        timestamp = datetime.now().isoformat()
+        
+        result = {
+            'overall_passed': False,
+            'evaluation_time_ms': 0.0,
+            'timestamp': timestamp,
+            'rules_evaluated': []
+        }
+        
+        if not rules:
+            end_time = time.perf_counter()
+            result['evaluation_time_ms'] = (end_time - start_time) * 1000
+            return result
+
+        overall_passed = True
+        
+        for rule in rules:
+            rule_start_time = time.perf_counter()
+            rule_result = {
+                'rule': rule,
+                'passed': False,
+                'value': None,
+                'error': None,
+                'evaluation_time_ms': 0.0
+            }
+            
+            try:
+                value = self._evaluate_single_rule(rule, context)
+                rule_result['value'] = value
+                
+                # Handle various result types (same logic as evaluate_rules)
+                if pd.isna(value) or value is None:
+                    rule_result['passed'] = False
+                    overall_passed = False
+                elif isinstance(value, (bool, np.bool_)):
+                    rule_result['passed'] = bool(value)
+                    if not value:
+                        overall_passed = False
+                elif isinstance(value, (int, float, np.number)):
+                    rule_result['passed'] = bool(value)
+                    if not bool(value):
+                        overall_passed = False
+                else:
+                    # For other types, check truthiness
+                    rule_result['passed'] = bool(value)
+                    if not value:
+                        overall_passed = False
+                        
+            except Exception as e:
+                rule_result['error'] = str(e)
+                rule_result['passed'] = False
+                overall_passed = False
+                if self.debug:
+                    print(f"Error evaluating rule '{rule}': {e}")
+            
+            rule_end_time = time.perf_counter()
+            rule_result['evaluation_time_ms'] = (rule_end_time - rule_start_time) * 1000
+            result['rules_evaluated'].append(rule_result)
+        
+        end_time = time.perf_counter()
+        result['overall_passed'] = overall_passed
+        result['evaluation_time_ms'] = (end_time - start_time) * 1000
+        
+        return result
 
     def _evaluate_single_rule(self, rule: str, context: dict[str, Any]) -> Any:
         """
@@ -507,6 +590,10 @@ class Backtester:
         Raises:
             BacktesterError: If configuration is invalid
         """
+        # Validate config type first
+        if not isinstance(config, dict):
+            raise BacktesterError("Config must be a dictionary")
+            
         self.config = config
         self.debug = debug
         

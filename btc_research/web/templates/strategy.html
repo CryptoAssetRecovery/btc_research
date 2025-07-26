@@ -52,13 +52,13 @@
 {% if stats %}
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
         <div class="card metric-card">
-            <div class="metric-value {% if stats.trading and stats.trading.total_equity and stats.trading.total_equity >= stats.trading.initial_balance %}positive{% else %}negative{% endif %}" id="total-equity">
+            <div class="metric-value {% if stats.trading and stats.trading.total_equity and (stats.trading.total_equity|float) >= (stats.trading.initial_balance|float) %}positive{% else %}negative{% endif %}" id="total-equity">
                 {{ stats.trading.total_equity|currency if stats.trading else '$0.00' }}
             </div>
             <div class="metric-label">Total Equity</div>
         </div>
         <div class="card metric-card">
-            <div class="metric-value {% if stats.performance and stats.performance.total_return >= 0 %}positive{% else %}negative{% endif %}" id="total-return">
+            <div class="metric-value {% if stats.performance and (stats.performance.total_return|float) >= 0 %}positive{% else %}negative{% endif %}" id="total-return">
                 {{ stats.performance.total_return|currency if stats.performance else '$0.00' }}
             </div>
             <div class="metric-label">Total Return</div>
@@ -70,14 +70,14 @@
             <div class="metric-label">Total Trades</div>
         </div>
         <div class="card metric-card">
-            <div class="metric-value {% if stats.performance and stats.performance.win_rate >= 50 %}positive{% else %}neutral{% endif %}" id="win-rate">
+            <div class="metric-value {% if stats.performance and (stats.performance.win_rate|float) >= 50 %}positive{% else %}neutral{% endif %}" id="win-rate">
                 {{ stats.performance.win_rate|percentage if stats.performance else '0.00%' }}
             </div>
             <div class="metric-label">Win Rate</div>
         </div>
         <div class="card metric-card">
             <div class="metric-value neutral" id="sharpe-ratio">
-                {{ "%.2f"|format(stats.performance.sharpe_ratio) if stats.performance and stats.performance.sharpe_ratio else 'N/A' }}
+                {{ "%.2f"|format(stats.performance.sharpe_ratio|float) if stats.performance and stats.performance.sharpe_ratio else 'N/A' }}
             </div>
             <div class="metric-label">Sharpe Ratio</div>
         </div>
@@ -86,6 +86,195 @@
                 {{ stats.performance.max_drawdown|percentage if stats.performance and stats.performance.max_drawdown else '0.00%' }}
             </div>
             <div class="metric-label">Max Drawdown</div>
+        </div>
+    </div>
+{% endif %}
+
+<!-- Entry Condition Activity -->
+{% if condition_metrics %}
+    <div class="card" style="margin-bottom: 24px;">
+        <div style="margin-bottom: 16px; font-weight: 600; font-size: 15px;">Entry Condition Activity</div>
+        
+        <!-- Condition Pass/Fail Rates -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+            {% set summary = condition_metrics.get('summary', {}) %}
+            {% set condition_summary_data = summary.get('condition_summary', {}) %}
+            
+            <!-- Entry Long Condition -->
+            {% set entry_long_data = condition_summary_data.get('entry_long', {}) %}
+            <div class="card metric-card">
+                <div class="metric-value {% if (entry_long_data.get('pass_rate', 0)|float) >= 0.5 %}positive{% else %}negative{% endif %}">
+                    {{ "%.1f"|format(entry_long_data.get('pass_rate', 0) * 100) }}%
+                </div>
+                <div class="metric-label">Entry Long Pass Rate</div>
+                <div style="font-size: 12px; color: var(--muted-foreground); margin-top: 4px;">
+                    {{ entry_long_data.get('passed', 0) }}/{{ entry_long_data.get('total', 0) }} evaluations
+                </div>
+            </div>
+            
+            <!-- Entry Short Condition -->
+            {% set entry_short_data = condition_summary_data.get('entry_short', {}) %}
+            <div class="card metric-card">
+                <div class="metric-value {% if (entry_short_data.get('pass_rate', 0)|float) >= 0.5 %}positive{% else %}negative{% endif %}">
+                    {{ "%.1f"|format(entry_short_data.get('pass_rate', 0) * 100) }}%
+                </div>
+                <div class="metric-label">Entry Short Pass Rate</div>
+                <div style="font-size: 12px; color: var(--muted-foreground); margin-top: 4px;">
+                    {{ entry_short_data.get('passed', 0) }}/{{ entry_short_data.get('total', 0) }} evaluations
+                </div>
+            </div>
+            
+            <!-- Exit Long Condition -->
+            {% set exit_long_data = condition_summary_data.get('exit_long', {}) %}
+            <div class="card metric-card">
+                <div class="metric-value {% if (exit_long_data.get('pass_rate', 0)|float) >= 0.5 %}positive{% else %}negative{% endif %}">
+                    {{ "%.1f"|format(exit_long_data.get('pass_rate', 0) * 100) }}%
+                </div>
+                <div class="metric-label">Exit Long Pass Rate</div>
+                <div style="font-size: 12px; color: var(--muted-foreground); margin-top: 4px;">
+                    {{ exit_long_data.get('passed', 0) }}/{{ exit_long_data.get('total', 0) }} evaluations
+                </div>
+            </div>
+            
+            <!-- Exit Short Condition -->
+            {% set exit_short_data = condition_summary_data.get('exit_short', {}) %}
+            <div class="card metric-card">
+                <div class="metric-value {% if (exit_short_data.get('pass_rate', 0)|float) >= 0.5 %}positive{% else %}negative{% endif %}">
+                    {{ "%.1f"|format(exit_short_data.get('pass_rate', 0) * 100) }}%
+                </div>
+                <div class="metric-label">Exit Short Pass Rate</div>
+                <div style="font-size: 12px; color: var(--muted-foreground); margin-top: 4px;">
+                    {{ exit_short_data.get('passed', 0) }}/{{ exit_short_data.get('total', 0) }} evaluations
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Condition Evaluations and Rule Performance -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+            <!-- Recent Evaluations -->
+            <div>
+                <div style="margin-bottom: 12px; font-weight: 600; font-size: 14px;">Recent Evaluations</div>
+                {% set recent_activity = summary.get('recent_activity', []) %}
+                {% if recent_activity %}
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        {% for evaluation in recent_activity[:15] %}
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; margin-bottom: 6px; background: rgba(248, 250, 252, 0.8); border-radius: 6px; border-left: 3px solid {% if evaluation.get('result') %}var(--success-color){% else %}var(--danger-color){% endif %};">
+                                <div>
+                                    <div style="font-weight: 500; font-size: 13px;">{{ evaluation.get('condition_type', 'Unknown') }}</div>
+                                    <div style="font-size: 11px; color: var(--muted-foreground);">{{ evaluation.get('timestamp', '')[:19] if evaluation.get('timestamp') else 'N/A' }}</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span style="padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; background-color: {% if evaluation.get('result') %}rgba(34, 197, 94, 0.1); color: var(--success){% else %}rgba(239, 68, 68, 0.1); color: var(--danger){% endif %};">
+                                        {% if evaluation.get('result') %}PASS{% else %}FAIL{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div style="text-align: center; color: var(--muted-foreground); padding: 32px 0; font-size: 14px;">
+                        No recent condition evaluations
+                    </div>
+                {% endif %}
+            </div>
+            
+            <!-- Rule Performance Statistics -->
+            <div>
+                <div style="margin-bottom: 12px; font-weight: 600; font-size: 14px;">Rule Performance</div>
+                {% set rule_stats = condition_metrics.get('condition_metrics', {}).get('rule_statistics', {}) %}
+                {% set analysis = condition_metrics.get('analysis', {}) %}
+                
+                {% if rule_stats %}
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        <!-- Top Performing Rules -->
+                        {% set high_performers = analysis.get('rule_correlation_analysis', {}).get('high_performing_rules', []) %}
+                        {% if high_performers %}
+                            <div style="margin-bottom: 16px;">
+                                <div style="font-size: 12px; color: var(--success-color); font-weight: 600; margin-bottom: 8px;">HIGH PERFORMING RULES</div>
+                                {% for rule in high_performers[:3] %}
+                                    {% set rule_data = rule_stats.get(rule, {}) %}
+                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; margin-bottom: 4px; background: rgba(34, 197, 94, 0.1); border-radius: 4px;">
+                                        <div style="font-size: 12px; font-weight: 500; max-width: 60%; overflow: hidden; text-overflow: ellipsis;">{{ rule }}</div>
+                                        <div style="font-size: 11px; color: var(--success-color);">{{ "%.1f"|format(rule_data.get('pass_rate', 0) * 100) }}%</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        
+                        <!-- Low Performing Rules -->
+                        {% set low_performers = analysis.get('rule_correlation_analysis', {}).get('low_performing_rules', []) %}
+                        {% if low_performers %}
+                            <div style="margin-bottom: 16px;">
+                                <div style="font-size: 12px; color: var(--danger-color); font-weight: 600; margin-bottom: 8px;">LOW PERFORMING RULES</div>
+                                {% for rule in low_performers[:3] %}
+                                    {% set rule_data = rule_stats.get(rule, {}) %}
+                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; margin-bottom: 4px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
+                                        <div style="font-size: 12px; font-weight: 500; max-width: 60%; overflow: hidden; text-overflow: ellipsis;">{{ rule }}</div>
+                                        <div style="font-size: 11px; color: var(--danger-color);">{{ "%.1f"|format(rule_data.get('pass_rate', 0) * 100) }}%</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        
+                        <!-- Most Frequent Failures -->
+                        {% set frequent_failures = analysis.get('most_frequent_failures', []) %}
+                        {% if frequent_failures %}
+                            <div>
+                                <div style="font-size: 12px; color: var(--warning-color); font-weight: 600; margin-bottom: 8px;">FREQUENT FAILURES</div>
+                                {% for failure in frequent_failures[:3] %}
+                                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; margin-bottom: 4px; background: rgba(234, 88, 12, 0.1); border-radius: 4px;">
+                                        <div style="font-size: 12px; font-weight: 500; max-width: 60%; overflow: hidden; text-overflow: ellipsis;">{{ failure.get('rule', 'Unknown') }}</div>
+                                        <div style="font-size: 11px; color: var(--warning-color);">{{ failure.get('total_evaluations', 0) }} fails</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <div style="text-align: center; color: var(--muted-foreground); padding: 32px 0; font-size: 14px;">
+                        No rule performance data available
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Signal Activity Summary -->
+        {% set performance = summary.get('performance', {}) %}
+        {% if performance %}
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <div style="margin-bottom: 12px; font-weight: 600; font-size: 14px;">Signal Activity</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 18px; font-weight: 700; color: var(--primary-color);">{{ performance.get('total_evaluations', 0) }}</div>
+                        <div style="font-size: 11px; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.5px;">Total Evaluations</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 18px; font-weight: 700; color: var(--success-color);">{{ performance.get('signals_fired', 0) }}</div>
+                        <div style="font-size: 11px; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.5px;">Signals Fired</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 18px; font-weight: 700; color: var(--warning-color);">{{ performance.get('signals_blocked', 0) }}</div>
+                        <div style="font-size: 11px; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.5px;">Signals Blocked</div>
+                    </div>
+                    {% set performance_trends = analysis.get('performance_trends', {}) %}
+                    {% if performance_trends %}
+                        <div style="text-align: center;">
+                            <div style="font-size: 18px; font-weight: 700; color: {% if performance_trends.get('trend_direction') == 'improving' %}var(--success-color){% elif performance_trends.get('trend_direction') == 'declining' %}var(--danger-color){% else %}var(--info-color){% endif %};">{{ performance_trends.get('trend_direction', 'stable')|title }}</div>
+                            <div style="font-size: 11px; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.5px;">Recent Trend</div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% else %}
+    <!-- Show placeholder when no condition metrics available -->
+    <div class="card" style="margin-bottom: 24px;">
+        <div style="margin-bottom: 16px; font-weight: 600; font-size: 15px;">Entry Condition Activity</div>
+        <div style="text-align: center; color: var(--muted-foreground); padding: 48px 0;">
+            <div style="font-size: 48px; opacity: 0.3; margin-bottom: 16px;">📊</div>
+            <div style="font-size: 16px; margin-bottom: 8px;">No condition metrics available</div>
+            <div style="font-size: 14px;">This strategy hasn't started evaluating conditions yet, or condition tracking is not enabled.</div>
         </div>
     </div>
 {% endif %}
@@ -110,10 +299,10 @@
                         {% for position in positions %}
                             <tr>
                                 <td><strong>{{ position.symbol }}</strong></td>
-                                <td>{{ "%.6f"|format(position.size) }}</td>
+                                <td>{{ "%.6f"|format(position.size|float) if position.size else '0.000000' }}</td>
                                 <td>{{ position.average_price|currency }}</td>
                                 <td>{{ position.current_price|currency if position.current_price else 'N/A' }}</td>
-                                <td class="{% if position.unrealized_pnl >= 0 %}positive{% else %}negative{% endif %}">
+                                <td class="{% if position.unrealized_pnl and (position.unrealized_pnl|float) >= 0 %}positive{% else %}negative{% endif %}">
                                     {{ position.unrealized_pnl|currency }}
                                 </td>
                             </tr>
@@ -196,11 +385,11 @@
                                     {{ trade.side|upper }}
                                 </span>
                             </td>
-                            <td>{{ "%.6f"|format(trade.size) }}</td>
+                            <td>{{ "%.6f"|format(trade.size|float) if trade.size else '0.000000' }}</td>
                             <td>{{ trade.price|currency }}</td>
-                            <td>{{ (trade.size * trade.price)|currency }}</td>
+                            <td>{{ ((trade.size|float) * (trade.price|float))|currency if trade.size and trade.price else '$0.00' }}</td>
                             <td style="color: var(--warning);">{{ trade.commission|currency }}</td>
-                            <td class="{% if trade.pnl >= 0 %}positive{% else %}negative{% endif %}">
+                            <td class="{% if trade.pnl and (trade.pnl|float) >= 0 %}positive{% else %}negative{% endif %}">
                                 {{ trade.pnl|currency if trade.pnl else 'N/A' }}
                             </td>
                         </tr>
@@ -228,6 +417,10 @@
             grid-template-columns: 1fr !important;
         }
         
+        [style*="grid-template-columns: 1fr 1fr"] {
+            grid-template-columns: 1fr !important;
+        }
+        
         .metric-card {
             padding: 16px 12px !important;
         }
@@ -242,6 +435,15 @@
         
         .table th, .table td {
             padding: 8px 6px !important;
+        }
+        
+        /* Condition metrics mobile adjustments */
+        [style*="max-height: 300px"] {
+            max-height: 200px !important;
+        }
+        
+        [style*="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))"] {
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important;
         }
     }
 </style>

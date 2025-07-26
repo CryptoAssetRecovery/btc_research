@@ -214,8 +214,8 @@ risk_management:
 backtest:
   cash: 50000           # Increased capital for realistic position sizing
   commission: 0.0004    # 0.04% commission per trade (realistic for spot)
-  from: "2024-01-01"    # Extended 15-month test period
-  to: "2025-01-01"      # Captures multiple market phases
+  from: "2024-03-12"    # Extended 15-month test period
+  to: "2025-12-18"      # Captures multiple market phases
 
 
 # Optimization parameters

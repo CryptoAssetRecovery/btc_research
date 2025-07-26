@@ -74,7 +74,12 @@ async def lifespan(app: FastAPI):
         # Initialize StreamManager for real-time data
         symbols = ["BTC/USDT"]  # Default symbols to stream
         timeframes = ["1m", "5m", "15m", "1h"]  # Default timeframes
-        app_state["stream_manager"] = StreamManager(symbols=symbols, timeframes=timeframes)
+        exchange = "binanceus"  # Use Binance.US to avoid geo-restrictions
+        app_state["stream_manager"] = StreamManager(symbols=symbols, timeframes=timeframes, exchange=exchange)
+        
+        # Start the StreamManager to begin WebSocket connections
+        await app_state["stream_manager"].start()
+        logger.info("StreamManager started successfully")
         
         # Initialize base PaperTrader (individual strategies will create their own instances)
         app_state["paper_trader"] = PaperTrader(initial_balance=0)  # Base instance for API queries
@@ -126,9 +131,8 @@ async def lifespan(app: FastAPI):
     
     if app_state["stream_manager"]:
         try:
-            # Stream manager cleanup would go here
-            # await app_state["stream_manager"].stop()
-            pass
+            await app_state["stream_manager"].stop()
+            logger.info("StreamManager shutdown complete")
         except Exception as e:
             logger.error(f"Error shutting down StreamManager: {e}")
     

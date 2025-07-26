@@ -548,6 +548,84 @@ class DataAccess:
             logger.error(f"Failed to get historical orders for {strategy_id}: {e}")
             return PaginationResult([], 0, skip, limit)
     
+    async def get_strategy_condition_metrics(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get comprehensive condition metrics for a strategy.
+        
+        Args:
+            strategy_id: Strategy ID
+            
+        Returns:
+            Dictionary with full condition metrics or None if not found
+        """
+        try:
+            # Try to get from active strategy first
+            async with self.strategy_manager.get_strategy_runner(strategy_id) as runner:
+                if hasattr(runner, 'get_condition_metrics'):
+                    condition_metrics = runner.get_condition_metrics()
+                    return condition_metrics
+                else:
+                    logger.warning(f"Strategy runner for {strategy_id} does not have get_condition_metrics method")
+                    raise AttributeError("'StrategyRunner' object has no attribute 'get_condition_metrics'")
+                
+        except Exception as e:
+            logger.warning(f"Could not get condition metrics for active strategy {strategy_id}: {e}")
+            
+            # Fall back to historical data if available
+            return await self._get_historical_condition_metrics(strategy_id)
+    
+    async def get_strategy_condition_summary(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get condition metrics summary for a strategy.
+        
+        Args:
+            strategy_id: Strategy ID
+            
+        Returns:
+            Dictionary with condition metrics summary or None if not found
+        """
+        try:
+            # Try to get from active strategy first
+            async with self.strategy_manager.get_strategy_runner(strategy_id) as runner:
+                condition_summary = runner.get_condition_summary()
+                return condition_summary
+                
+        except Exception as e:
+            logger.warning(f"Could not get condition summary for active strategy {strategy_id}: {e}")
+            
+            # Fall back to historical data if available
+            return await self._get_historical_condition_summary(strategy_id)
+
+    async def _get_historical_condition_metrics(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """Get historical condition metrics from persistent storage."""
+        try:
+            metrics_file = self.data_dir / f"{strategy_id}_condition_metrics.json"
+            
+            if metrics_file.exists():
+                with open(metrics_file, 'r') as f:
+                    return json.load(f)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get historical condition metrics for {strategy_id}: {e}")
+            return None
+    
+    async def _get_historical_condition_summary(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """Get historical condition metrics summary from persistent storage."""
+        try:
+            summary_file = self.data_dir / f"{strategy_id}_condition_summary.json"
+            
+            if summary_file.exists():
+                with open(summary_file, 'r') as f:
+                    return json.load(f)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get historical condition summary for {strategy_id}: {e}")
+            return None
+
     async def save_strategy_data(self, strategy_id: str) -> None:
         """
         Save current strategy data to persistent storage.
@@ -569,6 +647,23 @@ class DataAccess:
                 
                 with open(stats_file, 'w') as f:
                     json.dump(stats, f, indent=2, default=str)
+                
+                # Save condition metrics
+                try:
+                    condition_metrics = runner.get_condition_metrics()
+                    condition_summary = runner.get_condition_summary()
+                    
+                    metrics_file = self.data_dir / f"{strategy_id}_condition_metrics.json"
+                    summary_file = self.data_dir / f"{strategy_id}_condition_summary.json"
+                    
+                    with open(metrics_file, 'w') as f:
+                        json.dump(condition_metrics, f, indent=2, default=str)
+                    
+                    with open(summary_file, 'w') as f:
+                        json.dump(condition_summary, f, indent=2, default=str)
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to save condition metrics for {strategy_id}: {e}")
                 
                 # Save trades (append to JSONL)
                 trades_file = self.data_dir / f"{strategy_id}_trades.jsonl"

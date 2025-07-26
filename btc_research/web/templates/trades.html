@@ -3,75 +3,32 @@
 {% block title %}Trade History - Paper Trading{% endblock %}
 
 {% block page_actions %}
-    <div class="filter-controls">
-        <div class="filter-dropdown">
+    <div style="display: flex; gap: 8px; align-items: center;">
+        <div style="position: relative;">
             <button type="button" class="btn btn-secondary" onclick="toggleFilterMenu()">
-                Filter ▼
+                {% if strategy_id %}
+                    {{ strategy_id[:12] }}...
+                {% else %}
+                    All Strategies
+                {% endif %}
+                <span style="margin-left: 4px;">▼</span>
             </button>
-            <div class="filter-menu" id="filterMenu">
-                <a href="{{ url_for('trades') }}" class="filter-item">All Strategies</a>
+            <div class="filter-menu" id="filterMenu" style="position: absolute; top: 100%; left: 0; min-width: 180px; background-color: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 4px 0; margin-top: 4px; display: none; z-index: 1000;">
+                <a href="{{ url_for('trades') }}" style="display: block; padding: 8px 12px; color: var(--foreground); text-decoration: none; font-size: 14px;">All Strategies</a>
                 {% for strategy in get_strategies() if get_strategies %}
-                    <a href="{{ url_for('trades', strategy_id=strategy.id) }}" class="filter-item">
+                    <a href="{{ url_for('trades', strategy_id=strategy.id) }}" style="display: block; padding: 8px 12px; color: var(--foreground); text-decoration: none; font-size: 14px;">
                         {{ strategy.name or strategy.id[:12] + '...' }}
                     </a>
                 {% endfor %}
             </div>
         </div>
-        <button onclick="location.reload()" class="btn btn-secondary">
-            Refresh
-        </button>
+        <button onclick="location.reload()" class="btn btn-secondary">Refresh</button>
     </div>
-
-    <style>
-        .filter-controls {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .filter-dropdown {
-            position: relative;
-        }
-
-        .filter-btn {
-            /* Using btn-secondary class instead */
-        }
-
-        .filter-menu {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            min-width: 180px;
-            background-color: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 4px 0;
-            margin-top: 4px;
-            display: none;
-            z-index: 1000;
-        }
-
-        .filter-menu.show {
-            display: block;
-        }
-
-        .filter-item {
-            display: block;
-            padding: 8px 12px;
-            color: var(--foreground);
-            text-decoration: none;
-            font-size: 14px;
-        }
-
-        .filter-item:hover {
-            background-color: var(--secondary);
-        }
-    </style>
 {% endblock %}
 
 {% block content %}
-<!-- Trade Summary -->
-<div class="trade-metrics">
+<!-- Trade Summary Metrics -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px;">
     <div class="metric-card">
         <div class="metric-value neutral">{{ total_trades }}</div>
         <div class="metric-label">Total Trades</div>
@@ -97,41 +54,23 @@
     </div>
 </div>
 
-<style>
-    .trade-metrics {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 16px;
-        margin-bottom: 24px;
-    }
-
-    @media (max-width: 768px) {
-        .trade-metrics {
-            grid-template-columns: repeat(2, 1fr);
-        }
-    }
-
-    @media (max-width: 480px) {
-        .trade-metrics {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-
-<!-- Trade Table -->
+<!-- Trade History Card -->
 <div class="card">
-    <div class="trade-header">
-        <div class="header-title">
-            <h2>Trade History</h2>
-            {% if strategy_id %}
-                <span class="strategy-filter">Strategy: {{ strategy_id[:12] }}...</span>
-            {% endif %}
-        </div>
-        <div class="header-actions">
-            <span class="trade-count">
+    <div style="margin-bottom: 24px;">
+        <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Trade History</h2>
+        {% if strategy_id %}
+            <div style="color: var(--muted-foreground); font-size: 13px; margin-top: 4px;">
+                Strategy: {{ strategy_id[:12] }}...
+            </div>
+        {% endif %}
+    </div>
+    
+    {% if trades %}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);">
+            <span style="color: var(--muted-foreground); font-size: 13px;">
                 Showing {{ trades|length }} of {{ total_trades }} trades
             </span>
-            <div class="export-controls">
+            <div style="display: flex; gap: 8px;">
                 <button type="button" class="btn btn-secondary btn-sm" onclick="exportTrades('csv')">
                     Export CSV
                 </button>
@@ -140,46 +79,44 @@
                 </button>
             </div>
         </div>
-    </div>
-    
-    {% if trades %}
-        <div class="table-container">
+        
+        <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 24px;">
             <table class="table" id="tradesTable">
                 <thead>
                     <tr>
                         <th>
-                            <button class="sort-btn" onclick="sortTable('timestamp')" type="button">
-                                Time <span class="sort-indicator">↕</span>
+                            <button style="background: none; border: none; color: var(--foreground); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 0;" onclick="sortTable('timestamp')" type="button">
+                                Time <span style="font-size: 12px; color: var(--muted-foreground);">↕</span>
                             </button>
                         </th>
                         {% if not strategy_id %}
                             <th>Strategy</th>
                         {% endif %}
                         <th>
-                            <button class="sort-btn" onclick="sortTable('symbol')" type="button">
-                                Symbol <span class="sort-indicator">↕</span>
+                            <button style="background: none; border: none; color: var(--foreground); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 0;" onclick="sortTable('symbol')" type="button">
+                                Symbol <span style="font-size: 12px; color: var(--muted-foreground);">↕</span>
                             </button>
                         </th>
                         <th>
-                            <button class="sort-btn" onclick="sortTable('side')" type="button">
-                                Side <span class="sort-indicator">↕</span>
+                            <button style="background: none; border: none; color: var(--foreground); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 0;" onclick="sortTable('side')" type="button">
+                                Side <span style="font-size: 12px; color: var(--muted-foreground);">↕</span>
                             </button>
                         </th>
-                        <th class="numeric">
-                            <button class="sort-btn" onclick="sortTable('size')" type="button">
-                                Size <span class="sort-indicator">↕</span>
+                        <th style="text-align: right;">
+                            <button style="background: none; border: none; color: var(--foreground); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 0; margin-left: auto;" onclick="sortTable('size')" type="button">
+                                Size <span style="font-size: 12px; color: var(--muted-foreground);">↕</span>
                             </button>
                         </th>
-                        <th class="numeric">
-                            <button class="sort-btn" onclick="sortTable('price')" type="button">
-                                Price <span class="sort-indicator">↕</span>
+                        <th style="text-align: right;">
+                            <button style="background: none; border: none; color: var(--foreground); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 0; margin-left: auto;" onclick="sortTable('price')" type="button">
+                                Price <span style="font-size: 12px; color: var(--muted-foreground);">↕</span>
                             </button>
                         </th>
-                        <th class="numeric">Trade Value</th>
-                        <th class="numeric">Commission</th>
-                        <th class="numeric">
-                            <button class="sort-btn" onclick="sortTable('pnl')" type="button">
-                                P&L <span class="sort-indicator">↕</span>
+                        <th style="text-align: right;">Trade Value</th>
+                        <th style="text-align: right;">Commission</th>
+                        <th style="text-align: right;">
+                            <button style="background: none; border: none; color: var(--foreground); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 0; margin-left: auto;" onclick="sortTable('pnl')" type="button">
+                                P&L <span style="font-size: 12px; color: var(--muted-foreground);">↕</span>
                             </button>
                         </th>
                         <th>Actions</th>
@@ -189,43 +126,44 @@
                     {% for trade in trades %}
                         <tr>
                             <td>
-                                <div class="timestamp">{{ trade.timestamp|datetime }}</div>
+                                <div style="font-weight: 500; color: var(--foreground); line-height: 1.4;">{{ trade.timestamp|datetime }}</div>
                                 {% if trade.timestamp %}
-                                    <div class="timestamp-raw">{{ trade.timestamp }}</div>
+                                    <div style="font-size: 12px; color: var(--muted-foreground); margin-top: 2px; font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;">{{ trade.timestamp }}</div>
                                 {% endif %}
                             </td>
                             {% if not strategy_id %}
                                 <td>
-                                    <a href="{{ url_for('strategy_detail', strategy_id=trade.strategy_id) }}" 
-                                       class="strategy-link">
+                                    <a href="{{ url_for('strategy_detail', strategy_id=trade.strategy_id) }}" style="color: var(--info); text-decoration: none; font-weight: 500;">
                                         {{ trade.strategy_name or trade.strategy_id[:12] + '...' }}
                                     </a>
                                 </td>
                             {% endif %}
-                            <td class="symbol">{{ trade.symbol }}</td>
+                            <td style="font-weight: 600; color: var(--foreground); font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;">{{ trade.symbol }}</td>
                             <td>
-                                <span class="trade-side trade-side-{{ trade.side|lower }}">
+                                <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; {% if trade.side|lower == 'buy' %}background-color: rgba(34, 197, 94, 0.1); color: var(--success); border: 1px solid rgba(34, 197, 94, 0.2);{% else %}background-color: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2);{% endif %}">
                                     {{ trade.side|upper }}
                                 </span>
                             </td>
-                            <td class="numeric tabular-nums">{{ "%.6f"|format(trade.size) }}</td>
-                            <td class="numeric tabular-nums">{{ trade.price|currency }}</td>
-                            <td class="numeric tabular-nums">{{ (trade.size * trade.price)|currency }}</td>
-                            <td class="numeric tabular-nums commission">{{ trade.commission|currency }}</td>
-                            <td class="numeric tabular-nums">
+                            <td style="text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;">{{ "%.6f"|format(trade.size) }}</td>
+                            <td style="text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;">{{ trade.price|currency }}</td>
+                            <td style="text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;">{{ (trade.size * trade.price)|currency }}</td>
+                            <td style="text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace; color: var(--warning);">{{ trade.commission|currency }}</td>
+                            <td style="text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;">
                                 {% if trade.pnl is not none %}
-                                    <div class="pnl {% if trade.pnl >= 0 %}positive{% else %}negative{% endif %}">
-                                        {{ trade.pnl|currency }}
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                                        <div class="{% if trade.pnl >= 0 %}positive{% else %}negative{% endif %}">
+                                            {{ trade.pnl|currency }}
+                                        </div>
                                         {% if trade.pnl != 0 %}
-                                            <div class="pnl-percent">({{ ((trade.pnl / (trade.size * trade.price)) * 100)|round(2) }}%)</div>
+                                            <div style="font-size: 12px; opacity: 0.8; color: {% if trade.pnl >= 0 %}var(--success){% else %}var(--danger){% endif %};">({{ ((trade.pnl / (trade.size * trade.price)) * 100)|round(2) }}%)</div>
                                         {% endif %}
                                     </div>
                                 {% else %}
-                                    <span class="na">N/A</span>
+                                    <span style="color: var(--muted-foreground); font-style: italic;">N/A</span>
                                 {% endif %}
                             </td>
                             <td>
-                                <div class="action-buttons">
+                                <div style="display: flex; gap: 4px;">
                                     <button type="button" class="btn btn-secondary btn-sm" 
                                             onclick="showTradeDetails('{{ trade.id if trade.id else loop.index }}')"
                                             title="View Details">
@@ -242,46 +180,46 @@
                         </tr>
                     {% endfor %}
                 </tbody>
-                </table>
-            </div>
-            
-            <!-- Pagination -->
-            {% if total_pages > 1 %}
-                <div class="pagination-container">
-                    <div class="pagination">
-                        {% if page > 1 %}
-                            <a class="pagination-btn" href="{{ url_for('trades', page=page-1, limit=limit, strategy_id=strategy_id) }}">
-                                ← Previous
-                            </a>
-                        {% endif %}
-                        
-                        <div class="pagination-pages">
-                            {% for p in range(1, total_pages + 1) %}
-                                {% if p == page %}
-                                    <span class="pagination-page active">{{ p }}</span>
-                                {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
-                                    <a class="pagination-page" href="{{ url_for('trades', page=p, limit=limit, strategy_id=strategy_id) }}">{{ p }}</a>
-                                {% elif p == 4 and page > 6 %}
-                                    <span class="pagination-ellipsis">...</span>
-                                {% elif p == total_pages - 3 and page < total_pages - 5 %}
-                                    <span class="pagination-ellipsis">...</span>
-                                {% endif %}
-                            {% endfor %}
-                        </div>
-                        
-                        {% if page < total_pages %}
-                            <a class="pagination-btn" href="{{ url_for('trades', page=page+1, limit=limit, strategy_id=strategy_id) }}">
-                                Next →
-                            </a>
-                        {% endif %}
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if total_pages > 1 %}
+            <div style="display: flex; justify-content: center; margin-top: 24px;">
+                <div style="display: flex; align-items: center; gap: 4px;">
+                    {% if page > 1 %}
+                        <a class="btn btn-secondary btn-sm" href="{{ url_for('trades', page=page-1, limit=limit, strategy_id=strategy_id) }}">
+                            ← Previous
+                        </a>
+                    {% endif %}
+                    
+                    <div style="display: flex; align-items: center; gap: 2px; margin: 0 8px;">
+                        {% for p in range(1, total_pages + 1) %}
+                            {% if p == page %}
+                                <span style="display: flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; background-color: var(--info); border: 1px solid var(--info); color: white; border-radius: 6px; font-size: 14px;">{{ p }}</span>
+                            {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+                                <a style="display: flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; color: var(--foreground); text-decoration: none; border: 1px solid transparent; border-radius: 6px; font-size: 14px; transition: all 0.2s ease;" href="{{ url_for('trades', page=p, limit=limit, strategy_id=strategy_id) }}" onmouseover="this.style.backgroundColor='var(--secondary)'; this.style.borderColor='var(--border)';" onmouseout="this.style.backgroundColor='transparent'; this.style.borderColor='transparent';">{{ p }}</a>
+                            {% elif p == 4 and page > 6 %}
+                                <span style="padding: 0 4px; color: var(--muted-foreground);">...</span>
+                            {% elif p == total_pages - 3 and page < total_pages - 5 %}
+                                <span style="padding: 0 4px; color: var(--muted-foreground);">...</span>
+                            {% endif %}
+                        {% endfor %}
                     </div>
+                    
+                    {% if page < total_pages %}
+                        <a class="btn btn-secondary btn-sm" href="{{ url_for('trades', page=page+1, limit=limit, strategy_id=strategy_id) }}">
+                            Next →
+                        </a>
+                    {% endif %}
                 </div>
-            {% endif %}
-            
+            </div>
+        {% endif %}
+        
     {% else %}
-        <div class="empty-state">
-            <h3>No Trades Found</h3>
-            <p>
+        <div style="text-align: center; padding: 48px 24px;">
+            <h3 style="font-size: 18px; margin-bottom: 8px; color: var(--foreground);">No Trades Found</h3>
+            <p style="color: var(--muted-foreground); margin-bottom: 24px; line-height: 1.5;">
                 {% if strategy_id %}
                     This strategy hasn't executed any trades yet.
                 {% else %}
@@ -296,451 +234,51 @@
 </div>
 
 <!-- Trade Details Modal -->
-<div class="modal" id="tradeDetailsModal">
-    <div class="modal-backdrop" onclick="closeModal()"></div>
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Trade Details</h3>
-                <button type="button" class="modal-close" onclick="closeModal()">×</button>
+<div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000; display: none; align-items: center; justify-content: center;" id="tradeDetailsModal">
+    <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5);" onclick="closeModal()"></div>
+    <div style="position: relative; width: 90%; max-width: 600px; max-height: 90vh; overflow: hidden;">
+        <div style="background-color: var(--card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border);">
+                <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: var(--foreground);">Trade Details</h3>
+                <button type="button" style="background: none; border: none; font-size: 20px; color: var(--muted-foreground); cursor: pointer; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;" onclick="closeModal()">×</button>
             </div>
-            <div class="modal-body" id="tradeDetailsContent">
-                <div class="loading-state">
+            <div style="padding: 20px; max-height: calc(90vh - 100px); overflow-y: auto;" id="tradeDetailsContent">
+                <div style="text-align: center; padding: 24px;">
                     <div class="loading-spinner"></div>
-                    <p>Loading trade details...</p>
+                    <p style="margin-top: 16px; color: var(--muted-foreground);">Loading trade details...</p>
                 </div>
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
 
-<!-- Trade-specific styles -->
 <style>
-    /* Trade header */
-    .trade-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 16px;
-        margin-bottom: 24px;
-        padding: 16px 0;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .header-title h2 {
-        font-size: 18px;
-        font-weight: 600;
-        margin: 0 0 4px 0;
-        color: var(--foreground);
-    }
-
-    .strategy-filter {
-        font-size: 13px;
-        color: var(--muted-foreground);
-    }
-
-    .header-actions {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 8px;
-    }
-
-    .trade-count {
-        font-size: 13px;
-        color: var(--muted-foreground);
-    }
-
-    .export-controls {
-        display: flex;
-        gap: 8px;
-    }
-
-    /* Table styles */
-    .table-container {
-        overflow-x: auto;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        margin-bottom: 24px;
-    }
-
-    .table {
-        margin: 0;
-        font-size: 14px;
-    }
-
-    .table th {
-        position: relative;
-        font-size: 13px;
-        padding: 12px 16px;
-        white-space: nowrap;
-    }
-
-    .table th.numeric {
-        text-align: right;
-    }
-
-    .table td {
-        padding: 16px;
-        vertical-align: top;
-    }
-
-    .table td.numeric {
-        text-align: right;
-    }
-
-    /* Sortable headers */
-    .sort-btn {
-        background: none;
-        border: none;
-        color: var(--foreground);
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 0;
-    }
-
-    .sort-btn:hover {
-        color: var(--info);
-    }
-
-    .sort-indicator {
-        font-size: 12px;
-        color: var(--muted-foreground);
-        transition: color 0.2s ease;
-    }
-
-    .sort-btn.active .sort-indicator {
-        color: var(--info);
-    }
-
-    /* Trade data styles */
-    .tabular-nums {
-        font-variant-numeric: tabular-nums;
-        font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
-    }
-
-    .timestamp {
-        font-weight: 500;
-        color: var(--foreground);
-        line-height: 1.4;
-    }
-
-    .timestamp-raw {
-        font-size: 12px;
-        color: var(--muted-foreground);
-        margin-top: 2px;
-        font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
-    }
-
-    .strategy-link {
-        color: var(--info);
-        text-decoration: none;
-        font-weight: 500;
-    }
-
-    .strategy-link:hover {
-        text-decoration: underline;
-    }
-
-    .symbol {
-        font-weight: 600;
-        color: var(--foreground);
-        font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
-    }
-
-    .trade-side {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .trade-side-buy {
-        background-color: rgba(34, 197, 94, 0.1);
-        color: var(--success);
-        border: 1px solid rgba(34, 197, 94, 0.2);
-    }
-
-    .trade-side-sell {
-        background-color: rgba(239, 68, 68, 0.1);
-        color: var(--danger);
-        border: 1px solid rgba(239, 68, 68, 0.2);
-    }
-
-    .commission {
-        color: var(--warning);
-    }
-
-    .pnl {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 2px;
-    }
-
-    .pnl-percent {
-        font-size: 12px;
-        opacity: 0.8;
-    }
-
-    .na {
-        color: var(--muted-foreground);
-        font-style: italic;
-    }
-
-    /* Action buttons */
-    .action-buttons {
-        display: flex;
-        gap: 4px;
-    }
-
-    .action-btn {
-        /* Removed - now using btn-secondary btn-sm classes */
-    }
-
-    /* Pagination */
-    .pagination-container {
-        display: flex;
-        justify-content: center;
-        margin-top: 24px;
-    }
-
-    .pagination {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    .pagination-btn {
-        padding: 8px 12px;
-        color: var(--foreground);
-        text-decoration: none;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        font-size: 14px;
-        transition: all 0.2s ease;
-    }
-
-    .pagination-btn:hover {
+    .filter-menu a:hover {
         background-color: var(--secondary);
     }
-
-    .pagination-pages {
-        display: flex;
-        align-items: center;
-        gap: 2px;
-        margin: 0 8px;
+    
+    .filter-menu.show {
+        display: block;
     }
-
-    .pagination-page {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 32px;
-        height: 32px;
-        color: var(--foreground);
-        text-decoration: none;
-        border: 1px solid transparent;
-        border-radius: 6px;
-        font-size: 14px;
-        transition: all 0.2s ease;
-    }
-
-    .pagination-page:hover {
-        background-color: var(--secondary);
-        border-color: var(--border);
-    }
-
-    .pagination-page.active {
-        background-color: var(--info);
-        border-color: var(--info);
-        color: white;
-    }
-
-    .pagination-ellipsis {
-        padding: 0 4px;
-        color: var(--muted-foreground);
-    }
-
-    /* Empty state */
-    .empty-state {
-        text-align: center;
-        padding: 48px 24px;
-    }
-
-    .empty-state h3 {
-        font-size: 18px;
-        margin-bottom: 8px;
-        color: var(--foreground);
-    }
-
-    .empty-state p {
-        color: var(--muted-foreground);
-        margin-bottom: 24px;
-        line-height: 1.5;
-    }
-
-    /* Modal */
-    .modal {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 1000;
-        display: none;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .modal.show {
-        display: flex;
-    }
-
-    .modal-backdrop {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.5);
-    }
-
-    .modal-dialog {
-        position: relative;
-        width: 90%;
-        max-width: 600px;
-        max-height: 90vh;
-        overflow: hidden;
-    }
-
-    .modal-content {
-        background-color: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        overflow: hidden;
-    }
-
-    .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 16px 20px;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .modal-header h3 {
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--foreground);
-    }
-
-    .modal-close {
-        background: none;
-        border: none;
-        font-size: 20px;
-        color: var(--muted-foreground);
-        cursor: pointer;
-        padding: 0;
-        width: 24px;
-        height: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .modal-close:hover {
-        color: var(--foreground);
-    }
-
-    .modal-body {
-        padding: 20px;
-        max-height: calc(90vh - 100px);
-        overflow-y: auto;
-    }
-
-    .loading-state {
-        text-align: center;
-        padding: 24px;
-    }
-
-    .loading-state p {
-        margin-top: 16px;
-        color: var(--muted-foreground);
-    }
-
-    /* Mobile responsive */
+    
     @media (max-width: 768px) {
-        .trade-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: 16px;
-        }
-
-        .header-actions {
-            align-items: stretch;
-        }
-
-        .export-controls {
-            justify-content: stretch;
-        }
-
-        .export-controls .btn {
-            flex: 1;
-            justify-content: center;
-        }
-
         .table th,
         .table td {
             padding: 8px 12px;
         }
-
-        .action-buttons {
-            flex-direction: column;
-        }
-
-        .pagination {
-            flex-wrap: wrap;
-            gap: 2px;
-        }
-
-        .pagination-pages {
-            margin: 4px 0;
-        }
-
-        .modal-dialog {
-            width: 95%;
-            margin: 0 auto;
-        }
-    }
-
-    @media (max-width: 600px) {
-        /* Hide some columns on very small screens */
-        .table th:nth-child(n+6),
-        .table td:nth-child(n+6) {
+        
+        /* Hide some columns on mobile */
+        .table th:nth-child(n+6):not(:nth-child(9)):not(:last-child),
+        .table td:nth-child(n+6):not(:nth-child(9)):not(:last-child) {
             display: none;
         }
-
-        .table th:nth-child(7),
-        .table td:nth-child(7) {
-            display: table-cell; /* Show P&L */
-        }
-
-        .table th:last-child,
-        .table td:last-child {
-            display: table-cell; /* Show actions */
-        }
+    }
+    
+    #tradeDetailsModal.show {
+        display: flex;
     }
 </style>
+{% endblock %}
 
 {% block scripts %}
 <script>
@@ -756,10 +294,10 @@
     
     // Close filter menu when clicking outside
     document.addEventListener('click', function(event) {
-        const filterDropdown = document.querySelector('.filter-dropdown');
+        const filterDropdown = event.target.closest('[onclick="toggleFilterMenu()"]');
         const filterMenu = document.getElementById('filterMenu');
         
-        if (!filterDropdown.contains(event.target)) {
+        if (!filterDropdown && !filterMenu.contains(event.target)) {
             filterMenu.classList.remove('show');
         }
     });
@@ -819,20 +357,16 @@
     
     function updateSortIndicators(column, direction) {
         // Reset all sort indicators
-        document.querySelectorAll('.sort-btn').forEach(btn => {
-            btn.classList.remove('active');
-            const indicator = btn.querySelector('.sort-indicator');
-            if (indicator) indicator.textContent = '↕';
+        document.querySelectorAll('th button span').forEach(span => {
+            span.textContent = '↕';
+            span.style.color = 'var(--muted-foreground)';
         });
         
         // Update the sorted column indicator
-        const sortBtn = document.querySelector(`button[onclick="sortTable('${column}')"]`);
+        const sortBtn = document.querySelector(`button[onclick="sortTable('${column}')"] span`);
         if (sortBtn) {
-            sortBtn.classList.add('active');
-            const indicator = sortBtn.querySelector('.sort-indicator');
-            if (indicator) {
-                indicator.textContent = direction === 'asc' ? '↑' : '↓';
-            }
+            sortBtn.textContent = direction === 'asc' ? '↑' : '↓';
+            sortBtn.style.color = 'var(--info)';
         }
     }
     
@@ -927,7 +461,7 @@
     
     // Auto-refresh trades every 2 minutes
     setInterval(function() {
-        if (!document.querySelector('.modal.show')) { // Don't refresh if modal is open
+        if (!document.querySelector('#tradeDetailsModal.show')) { // Don't refresh if modal is open
             location.reload();
         }
     }, 120000);

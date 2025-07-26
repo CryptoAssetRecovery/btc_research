@@ -68,8 +68,11 @@ class StreamManager:
     # Required OHLCV columns
     REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume"]
     
-    # Binance WebSocket base URL
-    BINANCE_WS_BASE = "wss://stream.binance.com:9443/ws/"
+    # Exchange WebSocket base URLs
+    EXCHANGE_WS_URLS = {
+        "binance": "wss://stream.binance.com:9443/ws/",
+        "binanceus": "wss://stream.binance.us:9443/ws/"
+    }
     
     def __init__(
         self,
@@ -79,6 +82,7 @@ class StreamManager:
         redis_host: str = "redis",
         redis_port: int = 6379,
         redis_db: int = 0,
+        exchange: str = "binance",
     ):
         """
         Initialize the StreamManager.
@@ -90,14 +94,17 @@ class StreamManager:
             redis_host: Redis server hostname
             redis_port: Redis server port
             redis_db: Redis database number
+            exchange: Exchange to connect to ('binance' or 'binanceus')
             
         Raises:
             StreamManagerError: If initialization fails
         """
         self._validate_inputs(symbols, timeframes)
+        self._validate_exchange(exchange)
         
         self.symbols = symbols
         self.timeframes = timeframes
+        self.exchange = exchange.lower()
         self.buffer_size = buffer_size
         
         # Initialize circular buffers for each symbol and timeframe
@@ -110,6 +117,7 @@ class StreamManager:
         # WebSocket connections
         self.ws_connections: Dict[str, websocket.WebSocketApp] = {}
         self.is_running = False
+        self.event_loop = None  # Store reference to the main event loop
         
         # Redis client for cross-process data sharing
         try:
@@ -169,14 +177,21 @@ class StreamManager:
             if not isinstance(symbol, str) or '/' not in symbol:
                 raise StreamManagerError(f"Invalid symbol format: {symbol}. Expected format: 'BASE/QUOTE'")
     
+    def _validate_exchange(self, exchange: str) -> None:
+        """Validate exchange parameter."""
+        if exchange.lower() not in self.EXCHANGE_WS_URLS:
+            supported = list(self.EXCHANGE_WS_URLS.keys())
+            raise StreamManagerError(f"Unsupported exchange: {exchange}. Supported: {supported}")
+    
     def _symbol_to_binance_format(self, symbol: str) -> str:
         """Convert symbol from 'BTC/USDT' format to Binance 'btcusdt' format."""
         return symbol.replace('/', '').lower()
     
     def _create_websocket_url(self, symbol: str) -> str:
-        """Create Binance WebSocket URL for a symbol."""
+        """Create exchange WebSocket URL for a symbol."""
         binance_symbol = self._symbol_to_binance_format(symbol)
-        return f"{self.BINANCE_WS_BASE}{binance_symbol}@trade"
+        base_url = self.EXCHANGE_WS_URLS[self.exchange]
+        return f"{base_url}{binance_symbol}@trade"
     
     async def start(self) -> None:
         """
@@ -188,6 +203,9 @@ class StreamManager:
         if self.is_running:
             logger.warning("StreamManager is already running")
             return
+        
+        # Store the current event loop for thread-safe callback handling
+        self.event_loop = asyncio.get_running_loop()
         
         logger.info(f"Starting StreamManager for symbols {self.symbols} and timeframes {self.timeframes}")
         
@@ -210,16 +228,41 @@ class StreamManager:
         logger.info(f"Connecting to WebSocket for {symbol}: {url}")
         
         def on_message(ws, message):
-            asyncio.create_task(self._handle_message(symbol, message))
+            logger.debug(f"Received WebSocket message for {symbol}: {message[:100]}...")
+            if self.event_loop and not self.event_loop.is_closed():
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._handle_message(symbol, message), 
+                        self.event_loop
+                    )
+                    # Don't wait for completion to avoid blocking the WebSocket thread
+                    logger.debug(f"Scheduled message handler for {symbol}")
+                except Exception as e:
+                    logger.error(f"Failed to schedule message handler for {symbol}: {e}")
+            else:
+                logger.error(f"No event loop available for {symbol} message handling")
         
         def on_error(ws, error):
             logger.error(f"WebSocket error for {symbol}: {error}")
-            asyncio.create_task(self._handle_reconnect(symbol))
+            if self.event_loop and not self.event_loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._handle_reconnect(symbol), 
+                        self.event_loop
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to schedule reconnect for {symbol}: {e}")
         
         def on_close(ws, close_status_code, close_msg):
             logger.warning(f"WebSocket closed for {symbol}: {close_status_code} - {close_msg}")
-            if self.is_running:
-                asyncio.create_task(self._handle_reconnect(symbol))
+            if self.is_running and self.event_loop and not self.event_loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._handle_reconnect(symbol), 
+                        self.event_loop
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to schedule reconnect for {symbol}: {e}")
         
         def on_open(ws):
             logger.info(f"WebSocket connected for {symbol}")
@@ -246,10 +289,14 @@ class StreamManager:
         
         try:
             data = json.loads(message)
+            logger.debug(f"Received message for {symbol}: {data.get('e', 'unknown_event')}")
             
             # Binance trade stream format
             if 'e' in data and data['e'] == 'trade':
+                logger.debug(f"Processing trade tick for {symbol}: price={data.get('p')}, qty={data.get('q')}")
                 await self._process_tick(symbol, data)
+            else:
+                logger.debug(f"Ignoring non-trade event for {symbol}: {data.get('e', 'unknown')}")
             
             # Track processing performance
             processing_time = (time.time() - start_time) * 1000  # Convert to ms
@@ -275,6 +322,8 @@ class StreamManager:
             price = float(tick_data['p'])
             quantity = float(tick_data['q'])
             timestamp = int(tick_data['T'])  # Trade time
+            
+            logger.debug(f"Processing tick for {symbol}: price={price:.2f}, qty={quantity:.4f}, timestamp={timestamp}")
             
             # Update current tick data
             current = self.current_ticks[symbol]
@@ -321,13 +370,13 @@ class StreamManager:
             candle_key = f"{symbol}_{timeframe}"
             
             # Check if we need to start a new candle
-            if (candle_key not in tick_data['candle_start'] or 
-                tick_data['candle_start'][candle_key] != candle_start):
+            if (candle_key not in self.current_ticks[symbol]['candle_start'] or 
+                self.current_ticks[symbol]['candle_start'][candle_key] != candle_start):
                 
                 # Finalize previous candle if exists
-                if buffer and candle_key in tick_data['candle_start']:
+                if buffer and candle_key in self.current_ticks[symbol]['candle_start']:
                     # Previous candle is complete, ensure it's properly stored
-                    pass
+                    logger.debug(f"Completed candle for {symbol} {timeframe} at {self.current_ticks[symbol]['candle_start'][candle_key]}")
                 
                 # Start new candle
                 new_candle = {
@@ -340,7 +389,8 @@ class StreamManager:
                 }
                 
                 buffer.append(new_candle)
-                tick_data['candle_start'][candle_key] = candle_start
+                self.current_ticks[symbol]['candle_start'][candle_key] = candle_start
+                logger.debug(f"Started new candle for {symbol} {timeframe} at {candle_start}, buffer now has {len(buffer)} candles")
                 
             else:
                 # Update existing candle
@@ -350,6 +400,7 @@ class StreamManager:
                     current_candle['low'] = min(current_candle['low'], tick_data['price'])
                     current_candle['close'] = tick_data['price']
                     current_candle['volume'] += tick_data['volume']
+                    logger.debug(f"Updated existing candle for {symbol} {timeframe}, close={tick_data['price']:.2f}, volume={current_candle['volume']:.4f}")
         
         except Exception as e:
             logger.error(f"Error updating candle for {symbol} {timeframe}: {e}")
@@ -415,15 +466,23 @@ class StreamManager:
         Raises:
             StreamManagerError: If symbol/timeframe not found or invalid
         """
+        logger.debug(f"get_data called for {symbol} {timeframe}, limit={limit}")
+        
         if symbol not in self.buffers:
+            logger.warning(f"Symbol {symbol} not found in buffers. Available: {list(self.buffers.keys())}")
             raise StreamManagerError(f"Symbol {symbol} not found")
         
         if timeframe not in self.buffers[symbol]:
+            available_tf = list(self.buffers[symbol].keys())
+            logger.warning(f"Timeframe {timeframe} not found for {symbol}. Available: {available_tf}")
             raise StreamManagerError(f"Timeframe {timeframe} not found for {symbol}")
         
         buffer = self.buffers[symbol][timeframe]
+        buffer_size = len(buffer)
+        logger.debug(f"Buffer for {symbol} {timeframe} has {buffer_size} entries")
         
         if not buffer:
+            logger.info(f"Empty buffer for {symbol} {timeframe}, returning empty DataFrame")
             # Return empty DataFrame with proper structure
             return pd.DataFrame(columns=self.REQUIRED_COLUMNS).set_index(
                 pd.DatetimeIndex([], name="timestamp", tz="UTC")
@@ -449,7 +508,10 @@ class StreamManager:
         # Clear frequency for consistency with Engine class
         df.index.freq = None
         
-        return df[self.REQUIRED_COLUMNS]
+        result_df = df[self.REQUIRED_COLUMNS]
+        logger.debug(f"Returning {len(result_df)} rows for {symbol} {timeframe}. Latest timestamp: {result_df.index[-1] if len(result_df) > 0 else 'None'}")
+        
+        return result_df
     
     def get_latest_price(self, symbol: str) -> Optional[float]:
         """Get the latest price for a symbol."""

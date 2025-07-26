@@ -281,24 +281,38 @@ def dashboard():
     if 'error' in strategies_data:
         flash(f"Error loading strategies: {strategies_data['error']}", 'error')
         strategies = []
+        condition_metrics_data = {}
     else:
         strategies = strategies_data.get('strategies', [])
+        condition_metrics_data = {}
         
-        # Fetch statistics for each strategy
+        # Fetch statistics and condition metrics for each strategy
         for strategy in strategies:
             try:
+                # Get basic stats (includes condition_metrics_summary)
                 stats_data = api_client.get(f'/api/v1/strategies/{strategy["id"]}/stats')
                 if 'error' not in stats_data and 'stats' in stats_data:
                     strategy['stats'] = stats_data['stats']
                 else:
                     logger.warning(f"Failed to load stats for strategy {strategy['id']}: {stats_data}")
                     strategy['stats'] = None
+                
+                # Get detailed condition metrics for dashboard transparency
+                conditions_data = api_client.get(f'/api/v1/statistics/strategies/{strategy["id"]}/conditions')
+                if 'error' not in conditions_data and 'data' in conditions_data:
+                    condition_metrics_data[strategy['id']] = conditions_data['data']
+                else:
+                    logger.warning(f"Failed to load condition metrics for strategy {strategy['id']}: {conditions_data}")
+                    condition_metrics_data[strategy['id']] = None
+                    
             except Exception as e:
-                logger.error(f"Error fetching stats for strategy {strategy['id']}: {e}")
+                logger.error(f"Error fetching data for strategy {strategy['id']}: {e}")
                 strategy['stats'] = None
+                condition_metrics_data[strategy['id']] = None
     
     return render_template('dashboard.html', 
-                         strategies=strategies, 
+                         strategies=strategies,
+                         condition_metrics=condition_metrics_data,
                          page_title="Dashboard")
 
 
@@ -322,11 +336,23 @@ def strategy_detail(strategy_id: str):
     # Get current positions
     positions_data = api_client.get(f'/api/v1/statistics/strategies/{strategy_id}/positions')
     
+    # Get detailed condition metrics for this strategy
+    condition_metrics_data = api_client.get(f'/api/v1/statistics/strategies/{strategy_id}/conditions')
+    
+    # Process condition metrics for template
+    condition_metrics = None
+    if 'error' not in condition_metrics_data and 'data' in condition_metrics_data:
+        condition_metrics = condition_metrics_data['data']
+        logger.info(f"Retrieved condition metrics for strategy {strategy_id}")
+    else:
+        logger.warning(f"Failed to load condition metrics for strategy {strategy_id}: {condition_metrics_data}")
+    
     return render_template('strategy.html',
                          strategy=strategy_data.get('strategy', strategy_data),
                          stats=stats_data,
                          trades=trades_data.get('trades', []),
                          positions=positions_data.get('positions', []),
+                         condition_metrics=condition_metrics,
                          strategy_id=strategy_id,
                          page_title=f"Strategy {strategy_id}")
 
